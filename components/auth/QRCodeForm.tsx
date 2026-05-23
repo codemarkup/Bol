@@ -1,9 +1,16 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { RefreshCw } from "lucide-react";
 
 export function QRCodeForm() {
+  const [cells, setCells] = useState<boolean[]>(new Array(25).fill(true));
+
+  useEffect(() => {
+    setCells(Array.from({ length: 25 }, () => Math.random() > 0.4));
+  }, []);
+
   return (
     <div className="w-full flex flex-col items-center overflow-hidden py-4">
       <div className="flex flex-col items-center text-center mb-6">
@@ -20,8 +27,8 @@ export function QRCodeForm() {
         <div className="w-48 h-48 border border-dashed border-gray-300 rounded-xl flex items-center justify-center relative bg-gray-50/50">
           {/* Fake QR pattern */}
           <div className="absolute inset-2 grid grid-cols-5 grid-rows-5 gap-1.5 opacity-30">
-            {Array.from({ length: 25 }).map((_, i) => (
-              <div key={i} className={`bg-black rounded-sm ${Math.random() > 0.4 ? 'opacity-100' : 'opacity-0'}`} />
+            {cells.map((visible, i) => (
+              <div key={i} className={`bg-black rounded-sm ${visible ? 'opacity-100' : 'opacity-0'}`} />
             ))}
           </div>
           {/* Three corner squares */}
