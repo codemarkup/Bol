@@ -1,0 +1,4 @@
+import { Phone } from "lucide-react";
+export function CallsList({ activeId, onSelect }: any) {
+  return <div className="w-[320px] lg:w-[380px] h-full border-r border-[#ECECEC] flex flex-col p-4"><h1 className="text-2xl font-bold mb-4">Calls</h1><div className="flex gap-2 mb-4"><button className="bg-[#0D9488]/10 text-[#0D9488] px-4 py-1.5 rounded-full font-medium">All</button><button className="bg-[#F6F8F7] text-[#6B7280] px-4 py-1.5 rounded-full font-medium">Missed</button></div><button onClick={() => onSelect(1)} className="flex items-center gap-3 p-3 hover:bg-[#F6F8F7] rounded-xl"><div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center"><Phone className="w-5 h-5 text-gray-500" /></div><div className="flex-1 text-left"><div className="font-semibold text-[#0F0F14]">Alice</div><div className="text-sm text-[#6B7280]">Incoming • Today</div></div></button></div>;
+}
