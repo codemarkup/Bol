@@ -1,5 +1,5 @@
 "use client";
-
+export const dynamic = 'force-dynamic';
 import { useState } from "react";
 import { ResponsiveLayout } from "@/components/layout/ResponsiveLayout";
 import { ProfileNavigation } from "@/components/profile/ProfileNavigation";
