@@ -4,29 +4,51 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowRight, Loader2, Check } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
 export function SignInForm({ onSwitchToSignup }: { onSwitchToSignup: () => void }) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [magicLinkState, setMagicLinkState] = useState<"idle" | "loading" | "success">("idle");
+  const [errorMsg, setErrorMsg] = useState("");
+  const supabase = createClient();
 
   const handleMagicLink = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) return;
-    
+    setErrorMsg("");
     setMagicLinkState("loading");
-    // Simulate network request
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    setMagicLinkState("success");
     
-    // Simulate successful auth redirect after seeing success message
-    setTimeout(() => {
-      router.push("/");
-    }, 2000);
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+      },
+    });
+
+    if (error) {
+      setErrorMsg(error.message);
+      setMagicLinkState("idle");
+    } else {
+      setMagicLinkState("success");
+    }
   };
 
-  const handleGoogleSignIn = () => {
-    router.push("/");
+  const handleGoogleSignIn = async () => {
+    setErrorMsg("");
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+        queryParams: {
+          prompt: 'select_account'
+        }
+      },
+    });
+    
+    if (error) {
+      setErrorMsg(error.message);
+    }
   };
 
   return (
@@ -49,6 +71,7 @@ export function SignInForm({ onSwitchToSignup }: { onSwitchToSignup: () => void 
         </div>
         <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
       </motion.button>
+      {errorMsg && <p className="text-red-500 text-sm mt-2 text-center">{errorMsg}</p>}
 
       {/* Divider */}
       <div className="flex items-center my-8">

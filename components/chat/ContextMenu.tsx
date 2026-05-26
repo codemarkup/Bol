@@ -2,20 +2,25 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
+import { Emoji, EmojiStyle } from 'emoji-picker-react';
 import { 
   Reply, Copy, Forward, Trash2, 
   Pin, Archive, Settings, 
   Sparkles, SmilePlus, Bookmark, Timer, Globe, 
-  BellOff, Lock, SquarePen, Users, X
+  BellOff, Lock, SquarePen, Users, X,
+  MessageSquare, Phone, Video, Ban
 } from "lucide-react";
 
-type ContextMenuType = 'message' | 'chat' | 'background';
+type ContextMenuType = 'message' | 'chat' | 'background' | 'contact';
 
 interface ContextMenuProps {
   contextMenu: { type: ContextMenuType; x: number; y: number };
   onClose: () => void;
-  onAction?: (action: string) => void;
+  onAction?: (action: string, payload?: any) => void;
 }
+
+const COMMON_EMOJIS = ["❤️", "😂", "😮", "😢", "🙏", "👍"];
+const toUnified = (emoji: string) => [...emoji].map(c => c.codePointAt(0)?.toString(16)).join('-');
 
 export function ContextMenu({ contextMenu, onClose, onAction }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -38,11 +43,11 @@ export function ContextMenu({ contextMenu, onClose, onAction }: ContextMenuProps
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
-  const items = {
+  const allItems = {
     message: [
-      { icon: Reply, label: 'Reply' },
+      { icon: Reply, label: 'Reply', action: 'reply' },
+      { icon: Pin, label: 'Pin Message', action: 'pin_message' },
       { icon: Sparkles, label: 'Summarize with AI', teal: true },
-      { icon: SmilePlus, label: 'React' },
       { icon: Copy, label: 'Copy Text' },
       { icon: Bookmark, label: 'Bookmark Message' },
       { icon: Timer, label: 'Set Disappear Timer' },
@@ -57,7 +62,7 @@ export function ContextMenu({ contextMenu, onClose, onAction }: ContextMenuProps
       { icon: Archive, label: 'Archive Chat' },
       { icon: Lock, label: 'Lock Chat' },
       { divider: true },
-      { icon: Trash2, label: 'Delete Chat', danger: true },
+      { icon: Trash2, label: 'Delete Chat', danger: true, action: 'delete_chat' },
     ],
     background: [
       { icon: SquarePen, label: 'New Conversation', action: 'new_conversation' },
@@ -67,7 +72,17 @@ export function ContextMenu({ contextMenu, onClose, onAction }: ContextMenuProps
       { icon: X, label: 'Close Chat', action: 'close_chat' },
       { icon: Settings, label: 'Settings', action: 'settings' },
     ],
-  }[contextMenu.type] as any[];
+    contact: [
+      { icon: MessageSquare, label: 'Chat', action: 'chat' },
+      { icon: Phone, label: 'Audio Call', action: 'call' },
+      { icon: Video, label: 'Video Call', action: 'video_call' },
+      { divider: true },
+      { icon: Ban, label: 'Block Contact', action: 'block_contact', danger: true },
+      { icon: Trash2, label: 'Delete Contact', action: 'delete_contact', danger: true },
+    ],
+  } as Record<string, any[]>;
+
+  const items = (allItems[contextMenu.type] ?? []) as any[];
 
   return (
     <motion.div
@@ -79,6 +94,25 @@ export function ContextMenu({ contextMenu, onClose, onAction }: ContextMenuProps
       style={{ top: position.y, left: position.x }}
       className="fixed z-50 w-56 bg-white border border-[#ECECEC] rounded-xl shadow-xl py-1 overflow-hidden"
     >
+      {contextMenu.type === 'message' && (
+        <>
+          <div className="flex items-center justify-between px-3 py-2 bg-[#F9FAFB] border-b border-[#ECECEC]">
+            {COMMON_EMOJIS.map(emoji => (
+              <button
+                key={emoji}
+                onClick={() => {
+                  if (onAction) onAction('react', emoji);
+                  onClose();
+                }}
+                className="flex items-center justify-center hover:scale-125 transition-transform origin-bottom"
+              >
+                <Emoji unified={toUnified(emoji)} emojiStyle={EmojiStyle.APPLE} size={24} />
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
       {items.map((item, index) => {
         if (item.divider) {
           return <div key={index} className="h-[1px] bg-[#ECECEC] my-1 mx-2" />;

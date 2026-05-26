@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ArrowRight, Check, X, Loader2, Eye, EyeOff } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
 
 export function SignUpForm({ onSwitchToSignin }: { onSwitchToSignin: () => void }) {
   const router = useRouter();
@@ -18,6 +19,8 @@ export function SignUpForm({ onSwitchToSignin }: { onSwitchToSignin: () => void 
   const [showPassword, setShowPassword] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+  const supabase = createClient();
 
   // Simulated username check
   useEffect(() => {
@@ -27,17 +30,21 @@ export function SignUpForm({ onSwitchToSignin }: { onSwitchToSignin: () => void 
     }
     
     setUsernameStatus("checking");
-    const timer = setTimeout(() => {
-      // Simulate "taken" if they type exactly "ahmed"
-      if (username.toLowerCase() === "ahmed") {
+    const checkUser = async () => {
+      const { data } = await supabase.from('usernames').select('username').eq('username', username).single();
+      if (data) {
         setUsernameStatus("taken");
       } else {
         setUsernameStatus("available");
       }
+    };
+    
+    const timer = setTimeout(() => {
+      checkUser();
     }, 600);
     
     return () => clearTimeout(timer);
-  }, [username]);
+  }, [username, supabase]);
 
   // Password strength calculation
   const calculateStrength = (pass: string) => {
@@ -55,15 +62,47 @@ export function SignUpForm({ onSwitchToSignin }: { onSwitchToSignin: () => void 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!agreedToTerms) return;
+    if (usernameStatus === "taken") return;
     
+    setErrorMsg("");
     setIsSubmitting(true);
-    // Simulate network request
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    router.push("/");
+    
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          full_name: name,
+          username: username,
+        },
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+      }
+    });
+
+    if (error) {
+      setErrorMsg(error.message);
+      setIsSubmitting(false);
+    } else {
+      // Supabase handles confirmation email. Redirect to chat or home.
+      router.push("/chat");
+    }
   };
 
-  const handleGoogleSignIn = () => {
-    router.push("/");
+  const handleGoogleSignIn = async () => {
+    setErrorMsg("");
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+        queryParams: {
+          prompt: 'select_account'
+        }
+      },
+    });
+    
+    if (error) {
+      setErrorMsg(error.message);
+    }
   };
 
   return (
@@ -87,6 +126,7 @@ export function SignUpForm({ onSwitchToSignin }: { onSwitchToSignin: () => void 
         </div>
         <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
       </motion.button>
+      {errorMsg && <p className="text-red-500 text-sm mb-4 text-center">{errorMsg}</p>}
 
       {/* Divider */}
       <div className="flex items-center mb-8">

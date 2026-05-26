@@ -3,23 +3,37 @@
 import { motion } from "framer-motion";
 import { SquarePen, SlidersHorizontal, Search, Sparkles } from "lucide-react";
 import { useState } from "react";
-
-import { mockChats } from "./mockData";
+import { ConversationItem } from "@/hooks/useConversations";
 
 const filters = ["All", "Unread", "Groups", "Archived"];
 
 export function ChatList({ 
   activeChatId, 
   onSelectChat,
+  conversations,
+  isLoaded,
   onContextMenu,
   onOpenNewChat
 }: { 
-  activeChatId?: number | null;
-  onSelectChat: (id: number) => void;
-  onContextMenu?: (e: React.MouseEvent, type: 'chat') => void;
+  activeChatId?: string | null;
+  onSelectChat: (id: string) => void;
+  conversations: ConversationItem[];
+  isLoaded?: boolean;
+  onContextMenu?: (e: React.MouseEvent, type: 'chat', chat?: any) => void;
   onOpenNewChat?: () => void;
 }) {
   const [activeFilter, setActiveFilter] = useState("All");
+  const [search, setSearch] = useState("");
+
+  // Show skeletons only if we haven't loaded yet AND have no cached data
+  const showSkeleton = !isLoaded && conversations.length === 0;
+
+  const filtered = conversations.filter(chat => {
+    if (activeFilter === "Unread" && chat.unread === 0) return false;
+    if (activeFilter === "Groups" && !chat.isGroup) return false;
+    if (search && !chat.name.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
 
   return (
     <div className="w-full md:w-[300px] h-full bg-white border-r border-[#ECECEC] flex flex-col shrink-0 relative z-10">
@@ -44,6 +58,8 @@ export function ChatList({
           <input 
             type="text" 
             placeholder="Search conversations..." 
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
             className="w-full h-full bg-transparent pl-9 pr-4 text-sm text-[#0F0F14] placeholder:text-[#9CA3AF] outline-none"
           />
         </div>
@@ -76,16 +92,39 @@ export function ChatList({
 
       {/* Chat List */}
       <div className="flex-1 overflow-y-auto mt-1 custom-scrollbar pb-20 md:pb-0">
-        {mockChats.map((chat, i) => {
+        {/* Skeleton shimmer while loading */}
+        {showSkeleton && (
+          <div className="space-y-0">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="px-5 py-3.5 flex items-center gap-3 border-b border-[#F6F8F7]">
+                <div className="w-[46px] h-[46px] rounded-full bg-[#F0F0F0] animate-pulse shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <div className="flex justify-between">
+                    <div className="h-3.5 bg-[#F0F0F0] rounded-full animate-pulse" style={{ width: `${50 + (i * 13) % 30}%` }} />
+                    <div className="h-3 bg-[#F0F0F0] rounded-full animate-pulse w-10" />
+                  </div>
+                  <div className="h-3 bg-[#F0F0F0] rounded-full animate-pulse" style={{ width: `${40 + (i * 17) % 40}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {!showSkeleton && filtered.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-32 text-[#9CA3AF] text-sm">
+            {search ? "No results" : "No conversations yet"}
+          </div>
+        )}
+        {filtered.map((chat, i) => {
           const isActive = activeChatId === chat.id;
           return (
             <motion.div
               key={chat.id}
+              layout="position"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.05, duration: 0.3 }}
+              transition={{ duration: 0.25, ease: "easeOut" }}
               onClick={() => onSelectChat(chat.id)}
-              onContextMenu={(e) => onContextMenu?.(e, 'chat')}
+              onContextMenu={(e) => onContextMenu?.(e, 'chat', chat)}
               className={`relative w-full px-5 py-3.5 flex items-center gap-3 cursor-pointer transition-colors duration-150 border-b border-[#F6F8F7] last:border-none ${
                 isActive ? "bg-[#EEF4F3]" : "hover:bg-[#F6F8F7]"
               }`}
@@ -118,12 +157,11 @@ export function ChatList({
                 
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1 min-w-0 truncate">
-                    {chat.type === "ai" ? (
+                    {chat.isGroup && (
                       <div className="bg-brand/10 px-1.5 py-0.5 rounded text-[10px] font-bold text-brand flex items-center gap-1 shrink-0">
                         <Sparkles className="w-2.5 h-2.5" /> AI
                       </div>
-                    ) : null}
-                    
+                    )}
                     <span className={`text-[13px] truncate ${chat.unread > 0 ? "text-[#0F0F14] font-medium" : "text-[#6B7280]"}`}>
                       {chat.message}
                     </span>

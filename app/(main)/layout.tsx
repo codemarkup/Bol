@@ -1,9 +1,11 @@
 import { Sidebar } from "@/components/chat/Sidebar";
+import { AppPreloader } from "@/components/layout/AppPreloader";
 
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="w-full h-screen bg-[#B2C8C4] flex items-center justify-center overflow-hidden">
       <div className="flex w-full h-full bg-white text-[#0F0F14] font-sans selection:bg-brand/20 rounded-[20px] shadow-2xl relative">
+        <AppPreloader />
         <div className="hidden lg:block h-full z-30">
           <Sidebar />
         </div>
@@ -14,3 +16,4 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     </div>
   );
 }
+
