@@ -17,7 +17,7 @@ export function Hero() {
   }, []);
 
   return (
-    <section className="relative min-h-screen flex flex-col items-center justify-center pt-32 pb-20 overflow-hidden bg-background">
+    <section className="relative min-h-screen flex flex-col items-center justify-center pt-24 pb-12 [@media(min-height:800px)]:pt-32 [@media(min-height:800px)]:pb-20 overflow-hidden bg-background">
       {/* Background ambient glow */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-brand/5 rounded-full blur-[120px] pointer-events-none"></div>
 
@@ -35,12 +35,12 @@ export function Hero() {
               <span className="text-xs font-medium tracking-wide">Messaging finally evolved</span>
             </div>
             
-            <h1 className="text-5xl md:text-7xl font-bold tracking-tight text-foreground leading-[1.05] mb-6">
+            <h1 className="text-4xl md:text-5xl [@media(min-height:800px)]:text-7xl font-bold tracking-tight text-foreground leading-[1.05] mb-4 [@media(min-height:800px)]:mb-6">
               Stop settling for <br />
               <span className="text-muted/40">noise.</span>
             </h1>
             
-            <p className="text-lg md:text-xl text-muted-foreground leading-relaxed max-w-md mb-10">
+            <p className="text-base md:text-lg [@media(min-height:800px)]:text-xl text-muted-foreground leading-relaxed max-w-md mb-6 [@media(min-height:800px)]:mb-10">
               AI summaries, voice transcription, threads, and privacy that actually makes sense. Built for modern communication.
             </p>
 

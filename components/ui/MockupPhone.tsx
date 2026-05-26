@@ -13,7 +13,8 @@ export function MockupPhone({
   return (
     <div
       className={cn(
-        "relative mx-auto border-gray-800 dark:border-gray-800 bg-gray-800 border-[8px] rounded-[2.5rem] h-[600px] w-[280px] shadow-2xl shrink-0",
+        "relative mx-auto border-gray-800 dark:border-gray-800 bg-gray-800 border-[8px] rounded-[2.5rem] shadow-2xl shrink-0 transition-all",
+        "h-[500px] w-[240px] [@media(min-height:800px)]:h-[600px] [@media(min-height:800px)]:w-[280px]",
         className
       )}
     >
