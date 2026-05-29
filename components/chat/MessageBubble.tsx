@@ -110,9 +110,13 @@ type MessageBubbleProps = {
   replyTo?: { id: string; content: string; senderName: string } | null;
   onContextMenu?: (e: React.MouseEvent) => void;
   onReact?: (emoji: string) => void;
+  mediaUrl?: string;
+  durationSeconds?: number;
+  waveformData?: number[];
+  transcriptStatus?: 'none' | 'processing' | 'done' | 'failed';
 };
 
-export function MessageBubble({ type, isSent, text, time, sender, senderColor, showSenderName, reactions, read, replyTo, onContextMenu, onReact }: MessageBubbleProps) {
+export function MessageBubble({ type, isSent, text, time, sender, senderColor, showSenderName, reactions, read, replyTo, onContextMenu, onReact, mediaUrl, durationSeconds, waveformData, transcriptStatus }: MessageBubbleProps) {
   const [showReactionPanel, setShowReactionPanel] = useState(false);
   
   if (type === "typing") {
@@ -161,7 +165,7 @@ export function MessageBubble({ type, isSent, text, time, sender, senderColor, s
         className={`flex flex-col w-full ${isSent ? "items-end" : "items-start"}`}
       >
         <div className="relative max-w-[65%] group" onContextMenu={onContextMenu}>
-          <div className={`relative flex flex-col shadow-sm p-1.5 ${isSent ? "bg-[#0F0F14] text-white rounded-[18px] rounded-tr-[4px]" : "bg-white border border-[#ECECEC] text-[#0F0F14] rounded-[18px] rounded-tl-[4px]"}`}>
+          <div className={`relative flex flex-col shadow-[0_6px_20px_rgba(0,0,0,0.06)] p-1.5 ${isSent ? "bg-[#111827] text-white rounded-[18px] rounded-tr-[4px]" : "bg-white border border-[#ECECEC] text-[#0F0F14] rounded-[18px] rounded-tl-[4px]"}`}>
             <div className="relative w-full sm:w-[280px] h-[180px] bg-gradient-to-br from-gray-200 to-gray-300 rounded-xl overflow-hidden flex items-center justify-center">
               <ImageIcon className="w-8 h-8 text-gray-400 opacity-50" />
               <div className="absolute bottom-2 right-2 bg-black/50 backdrop-blur-md px-2 py-1 rounded-md text-white text-[10px] font-medium">3+</div>
@@ -188,52 +192,7 @@ export function MessageBubble({ type, isSent, text, time, sender, senderColor, s
   }
 
   if (type === "voice") {
-    return (
-      <motion.div 
-        initial={{ opacity: 0, x: isSent ? 10 : -10 }} animate={{ opacity: 1, x: 0 }} transition={{ type: "spring", stiffness: 300, damping: 25 }}
-        className={`flex flex-col w-full ${isSent ? "items-end" : "items-start"}`}
-      >
-        <div className="relative max-w-[65%] group" onContextMenu={onContextMenu}>
-          <div className={`relative flex flex-col shadow-sm px-4 py-3 ${isSent ? "bg-[#0F0F14] text-white rounded-[18px] rounded-tr-[4px]" : "bg-white border border-[#ECECEC] text-[#0F0F14] rounded-[18px] rounded-tl-[4px]"}`}>
-            {showSenderName && !isSent && sender && (
-              <span className={`text-[11px] font-semibold mb-0.5 ${senderColor || 'text-brand'}`}>{sender}</span>
-            )}
-            <div className="flex flex-col gap-2 min-w-[240px]">
-              <div className="flex items-center gap-3">
-                <button className="w-9 h-9 rounded-full bg-brand flex items-center justify-center shrink-0 shadow-sm hover:scale-105 transition-transform">
-                  <Play className="w-4 h-4 text-white ml-0.5" fill="currentColor" />
-                </button>
-                <div className="flex items-center gap-0.5 flex-1 h-6">
-                  {Array.from({ length: 25 }).map((_, i) => (
-                    <div key={i} className={`w-1 rounded-full ${i < 8 ? "bg-brand" : "bg-[#E5E7EB]"}`} style={{ height: `${Math.max(15, Math.random() * 100)}%` }} />
-                  ))}
-                </div>
-                <span className={`text-[12px] font-medium shrink-0 ${isSent ? "text-white/70" : "text-[#9CA3AF]"}`}>0:32</span>
-              </div>
-              <div className="flex items-start gap-1.5 mt-1 pt-2 border-t border-black/5 dark:border-white/10">
-                <Sparkles className="w-3 h-3 text-brand mt-0.5 shrink-0" />
-                <p className={`text-[12px] italic leading-snug ${isSent ? "text-white/80" : "text-[#6B7280]"}`}>Transcript: {text}</p>
-              </div>
-            </div>
-            <div className="flex justify-end mt-1.5">
-              <span className={`text-[10px] ${isSent ? "text-white/50" : "text-[#9CA3AF]"}`}>{time}</span>
-              {isSent && <span className={`ml-1 text-[10px] ${read ? "text-[#00E5FF] drop-shadow-[0_0_2px_rgba(0,229,255,0.4)]" : "text-white/50"}`}>✓✓</span>}
-            </div>
-          </div>
-          {reactions && reactions.length > 0 && (
-            <div className={`absolute -bottom-2 ${isSent ? "right-2" : "left-2"} flex items-center gap-1 z-10`}>
-              {reactions.map((reaction, i) => (
-                <div key={i} className="bg-white border border-[#ECECEC] rounded-full px-1.5 py-0.5 flex items-center gap-1 shadow-sm hover:scale-110 transition-transform cursor-pointer" title="Reacted">
-                  <Emoji unified={toUnified(reaction.emoji)} emojiStyle={EmojiStyle.APPLE} size={14} />
-                  <span className="text-[10px] font-medium text-[#6B7280]">{reaction.count}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          <ReactionHoverPanel isSent={isSent} onReact={onReact} showPanel={showReactionPanel} setShowPanel={setShowReactionPanel} />
-        </div>
-      </motion.div>
-    );
+    return <VoiceBubble {...arguments[0]} />
   }
 
   return (
@@ -242,7 +201,7 @@ export function MessageBubble({ type, isSent, text, time, sender, senderColor, s
       className={`flex flex-col w-full ${isSent ? "items-end" : "items-start"}`}
     >
       <div className="relative max-w-[65%] group" onContextMenu={onContextMenu}>
-        <div className={`relative flex flex-col shadow-sm px-4 py-3 ${isSent ? "bg-[#0F0F14] text-white rounded-[18px] rounded-tr-[4px]" : "bg-white border border-[#ECECEC] text-[#0F0F14] rounded-[18px] rounded-tl-[4px]"}`}>
+        <div className={`relative flex flex-col shadow-[0_6px_20px_rgba(0,0,0,0.06)] px-4 py-3 ${isSent ? "bg-[#111827] text-white rounded-[18px] rounded-tr-[4px]" : "bg-white border border-[#ECECEC] text-[#0F0F14] rounded-[18px] rounded-tl-[4px]"}`}>
           {showSenderName && !isSent && sender && (
             <span className={`text-[11px] font-semibold mb-0.5 ${senderColor || 'text-brand'}`}>{sender}</span>
           )}
@@ -281,3 +240,154 @@ export function MessageBubble({ type, isSent, text, time, sender, senderColor, s
     </motion.div>
   );
 }
+
+function VoiceBubble(props: MessageBubbleProps) {
+  const { isSent, text, time, sender, senderColor, showSenderName, reactions, read, onContextMenu, onReact, mediaUrl, durationSeconds, waveformData = [], transcriptStatus } = props;
+  const [showReactionPanel, setShowReactionPanel] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const togglePlay = () => {
+    if (!audioRef.current && mediaUrl) {
+      audioRef.current = new Audio(mediaUrl);
+      audioRef.current.preload = 'metadata';
+      audioRef.current.ontimeupdate = () => {
+        setCurrentTime(audioRef.current!.currentTime);
+      };
+      audioRef.current.onended = () => {
+        setIsPlaying(false);
+        setCurrentTime(0);
+      };
+    }
+
+    if (isPlaying) {
+      audioRef.current?.pause();
+      setIsPlaying(false);
+    } else {
+      audioRef.current?.play().catch(e => console.error("Audio playback failed", e));
+      setIsPlaying(true);
+    }
+  };
+
+  const formatDuration = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
+  };
+
+  const drawSmoothWaveform = (data: number[]) => {
+    if (!data || !data.length) return "";
+    const w = 200; 
+    const h = 24;  
+    const step = w / (data.length - 1);
+    
+    const points = data.map((val, i) => ({
+      x: i * step,
+      y: h - (Math.max(0.1, val) * h)
+    }));
+
+    let path = `M 0 ${h} L 0 ${points[0].y} `;
+    
+    for (let i = 0; i < points.length - 1; i++) {
+      const curr = points[i];
+      const next = points[i + 1];
+      const cpX = (curr.x + next.x) / 2;
+      path += `C ${cpX} ${curr.y}, ${cpX} ${next.y}, ${next.x} ${next.y} `;
+    }
+    
+    path += `L ${w} ${h} Z`;
+    return path;
+  };
+
+  const duration = durationSeconds || 0;
+  const progress = duration > 0 ? currentTime / duration : 0;
+  const displayWaveform = waveformData.length > 0 ? waveformData : Array.from({ length: 40 }).map(() => 0.1);
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, x: isSent ? 10 : -10 }} animate={{ opacity: 1, x: 0 }} transition={{ type: "spring", stiffness: 300, damping: 25 }}
+      className={`flex flex-col w-full ${isSent ? "items-end" : "items-start"}`}
+    >
+      <div className="relative max-w-[65%] group" onContextMenu={onContextMenu}>
+        <div className={`relative flex flex-col shadow-[0_6px_20px_rgba(0,0,0,0.06)] px-4 py-3 ${isSent ? "bg-[#111827] text-white rounded-[18px] rounded-tr-[4px]" : "bg-white border border-[#ECECEC] text-[#0F0F14] rounded-[18px] rounded-tl-[4px]"}`}>
+          {showSenderName && !isSent && sender && (
+            <span className={`text-[11px] font-semibold mb-0.5 ${senderColor || 'text-brand'}`}>{sender}</span>
+          )}
+          <div className="flex flex-col gap-2 min-w-[240px]">
+            <div className="flex items-center gap-3">
+              <button onClick={togglePlay} className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 shadow-sm hover:scale-105 transition-all ${isSent ? 'bg-white text-[#0F0F14]' : 'bg-brand text-white'}`}>
+                {isPlaying ? (
+                  <div className="flex gap-0.5 items-center justify-center">
+                    <div className="w-1 h-3 bg-current rounded-sm" />
+                    <div className="w-1 h-3 bg-current rounded-sm" />
+                  </div>
+                ) : (
+                  <Play className="w-4 h-4 ml-0.5" fill="currentColor" />
+                )}
+              </button>
+              
+              <div 
+                className="relative flex-1 h-[24px] w-full min-w-[120px] cursor-pointer group"
+                onClick={(e) => {
+                  if (!audioRef.current || duration === 0) return;
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const newProgress = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                  audioRef.current.currentTime = newProgress * duration;
+                  setCurrentTime(newProgress * duration);
+                }}
+              >
+                {/* Background Waveform */}
+                <svg viewBox="0 0 200 24" preserveAspectRatio="none" className={`absolute inset-0 w-full h-full transition-colors ${isSent ? 'fill-white/20' : 'fill-[#E5E7EB]'}`}>
+                  <path d={drawSmoothWaveform(displayWaveform)} />
+                </svg>
+
+                {/* Foreground Waveform (Filled) */}
+                <svg viewBox="0 0 200 24" preserveAspectRatio="none" className={`absolute inset-0 w-full h-full transition-colors ${isSent ? 'fill-white' : 'fill-brand'}`} style={{ clipPath: `inset(0 ${100 - (progress * 100)}% 0 0)` }}>
+                  <path d={drawSmoothWaveform(displayWaveform)} />
+                </svg>
+                
+                {/* Playhead Knob (Hover only) */}
+                <div 
+                  className={`absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity ${isSent ? 'bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]' : 'bg-brand shadow-[0_0_8px_rgba(13,148,136,0.8)]'}`}
+                  style={{ left: `calc(${progress * 100}% - 5px)` }}
+                />
+              </div>
+
+              <span className={`text-[12px] font-medium shrink-0 w-8 text-right ${isSent ? "text-white/70" : "text-[#9CA3AF]"}`}>
+                {formatDuration(isPlaying ? currentTime : duration)}
+              </span>
+            </div>
+            
+            {transcriptStatus !== 'none' && transcriptStatus !== 'failed' && (
+              <div className="flex items-start gap-1.5 mt-1 pt-2 border-t border-black/5 dark:border-white/10">
+                <Sparkles className="w-3 h-3 text-brand mt-0.5 shrink-0" />
+                {transcriptStatus === 'processing' ? (
+                  <p className={`text-[12px] italic leading-snug animate-pulse ${isSent ? "text-white/60" : "text-[#9CA3AF]"}`}>Transcribing...</p>
+                ) : (
+                  <p className={`text-[12px] italic leading-snug ${isSent ? "text-white/80" : "text-[#6B7280]"}`}>{text}</p>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end mt-1.5">
+            <span className={`text-[10px] ${isSent ? "text-white/50" : "text-[#9CA3AF]"}`}>{time}</span>
+            {isSent && <span className={`ml-1 text-[10px] ${read ? "text-[#00E5FF] drop-shadow-[0_0_2px_rgba(0,229,255,0.4)]" : "text-white/50"}`}>✓✓</span>}
+          </div>
+        </div>
+        {reactions && reactions.length > 0 && (
+          <div className={`absolute -bottom-2 ${isSent ? "right-2" : "left-2"} flex items-center gap-1 z-10`}>
+            {reactions.map((reaction, i) => (
+              <div key={i} className="bg-white border border-[#ECECEC] rounded-full px-1.5 py-0.5 flex items-center gap-1 shadow-sm hover:scale-110 transition-transform cursor-pointer" title="Reacted">
+                <Emoji unified={toUnified(reaction.emoji)} emojiStyle={EmojiStyle.APPLE} size={14} />
+                <span className="text-[10px] font-medium text-[#6B7280]">{reaction.count}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <ReactionHoverPanel isSent={isSent} onReact={onReact} showPanel={showReactionPanel} setShowPanel={setShowReactionPanel} />
+      </div>
+    </motion.div>
+  );
+}
+

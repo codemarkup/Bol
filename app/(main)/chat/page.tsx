@@ -241,6 +241,17 @@ export default function ChatPage() {
                   refresh();
                 }
               }
+              else if (action === 'transcribe_voice' && contextMenu?.message) {
+                // Trigger the background transcription API
+                fetch('/api/transcribe', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ 
+                    audioUrl: contextMenu.message.media_url, 
+                    messageId: contextMenu.message.id 
+                  })
+                });
+              }
               else alert(`Feature '${action}' coming soon!`);
             }} />
         )}

@@ -47,6 +47,7 @@ export function ContextMenu({ contextMenu, onClose, onAction }: ContextMenuProps
     message: [
       { icon: Reply, label: 'Reply', action: 'reply' },
       { icon: Pin, label: 'Pin Message', action: 'pin_message' },
+      ...(contextMenu?.message?.type === 'voice' ? [{ icon: Sparkles, label: 'Transcribe with AI', action: 'transcribe_voice', teal: true }] : []),
       { icon: Sparkles, label: 'Summarize with AI', teal: true },
       { icon: Copy, label: 'Copy Text' },
       { icon: Bookmark, label: 'Bookmark Message' },

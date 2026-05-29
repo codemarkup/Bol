@@ -15,6 +15,11 @@ export type MessageItem = {
   read: boolean;
   rawTime?: string;
   replyTo?: { id: string; content: string; senderName: string } | null;
+  media_url?: string;
+  duration_seconds?: number;
+  waveform_data?: number[];
+  transcript?: string;
+  transcript_status?: string;
 };
 
 export function useMessages(conversationId: string | null, currentUserId: string | null) {
@@ -44,6 +49,11 @@ export function useMessages(conversationId: string | null, currentUserId: string
     read: new Date(raw.created_at).getTime() <= otherLastRead,
     rawTime: raw.created_at,
     replyTo: raw.reply_to_content ? { id: raw.reply_to_id || '', content: raw.reply_to_content, senderName: raw.reply_to_sender || 'Unknown' } : null,
+    media_url: raw.media_url,
+    duration_seconds: raw.duration_seconds,
+    waveform_data: raw.waveform_data,
+    transcript: raw.transcript,
+    transcript_status: raw.transcript_status,
   }), [currentUserId]);
 
   const fetchMessages = useCallback(async () => {
@@ -63,7 +73,7 @@ export function useMessages(conversationId: string | null, currentUserId: string
 
     const { data: msgsData, error } = await supabase
       .from('messages')
-      .select('id, sender_id, content, type, created_at, reply_to_id, reply_to_content, reply_to_sender, message_reactions(emoji, user_id)')
+      .select('id, sender_id, content, type, created_at, reply_to_id, reply_to_content, reply_to_sender, media_url, duration_seconds, waveform_data, transcript, transcript_status, message_reactions(emoji, user_id)')
       .eq('conversation_id', conversationId)
       .is('deleted_at', null)
       .order('created_at', { ascending: false })
@@ -165,7 +175,7 @@ export function useMessages(conversationId: string | null, currentUserId: string
         let data = null;
         for (let i = 0; i < 3; i++) {
           const res = await supabase.from('messages')
-            .select('id, sender_id, content, type, created_at, reply_to_id, reply_to_content, reply_to_sender, message_reactions(emoji, user_id)')
+            .select('id, sender_id, content, type, created_at, reply_to_id, reply_to_content, reply_to_sender, media_url, duration_seconds, waveform_data, transcript, transcript_status, message_reactions(emoji, user_id)')
             .eq('id', payload.new.id).single();
           if (res.data) { data = res.data; break; }
           await new Promise(r => setTimeout(r, 200)); 
@@ -183,7 +193,11 @@ export function useMessages(conversationId: string | null, currentUserId: string
           
           setMessages(prev => {
             if (prev.some(m => m.id === data.id)) return prev;
-            return [...prev, formatMessage(data, pMap, Date.now())]; 
+            
+            // If the message is from us, it starts unread by the other person (otherLastRead = 0).
+            // If the message is from them, we read it instantly because our chat is open (otherLastRead = Date.now()).
+            const isFromMe = data.sender_id === currentUserId;
+            return [...prev, formatMessage(data, pMap, isFromMe ? 0 : Date.now())]; 
           });
           
           if (data.sender_id !== currentUserId && currentUserId) {
@@ -199,6 +213,13 @@ export function useMessages(conversationId: string | null, currentUserId: string
               .eq('user_id', currentUserId).then();
           }
         }
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'messages'
+      }, (payload) => {
+        setMessages(prev => prev.map(msg => 
+          msg.id === payload.new.id ? { ...msg, transcript: payload.new.transcript || msg.transcript, transcript_status: payload.new.transcript_status || msg.transcript_status } : msg
+        ))
       })
       .on('postgres_changes', {
         event: 'UPDATE', schema: 'public', table: 'conversation_members',

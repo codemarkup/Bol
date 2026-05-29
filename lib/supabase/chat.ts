@@ -24,12 +24,26 @@ export function getColor(name: string): string {
 
 export function formatTime(isoString: string): string {
   const date = new Date(isoString);
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+export function formatDateHeading(isoString: string): string {
+  const date = new Date(isoString);
   const now = new Date();
+  
+  const dateStr = date.toLocaleDateString();
+  const nowStr = now.toLocaleDateString();
+  
+  if (dateStr === nowStr) return 'Today';
+  
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (dateStr === yesterday.toLocaleDateString()) return 'Yesterday';
+  
   const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
-  if (diffDays === 0) return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  if (diffDays === 1) return 'Yesterday';
   if (diffDays < 7) return date.toLocaleDateString([], { weekday: 'long' });
-  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric', year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
 }
 
 export function aggregateReactions(reactions: { emoji: string; user_id: string }[]) {

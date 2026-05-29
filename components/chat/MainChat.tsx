@@ -9,7 +9,9 @@ import { Users, Shield } from "lucide-react";
 import { MessageItem } from "@/hooks/useMessages";
 import { ConversationItem } from "@/hooks/useConversations";
 import { createClient } from "@/lib/supabase/client";
-import { formatLastSeen } from "@/lib/supabase/chat";
+import { formatLastSeen, formatDateHeading } from "@/lib/supabase/chat";
+import { useVoiceRecorder, VoiceRecording } from "@/hooks/useVoiceRecorder";
+import { getPresignedUrl, uploadToR2 } from "@/lib/uploadToR2";
 
 export function MainChat({ 
   conversation,
@@ -52,6 +54,76 @@ export function MainChat({
   const [showGroupPanel, setShowGroupPanel] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const typingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const { 
+    isRecording, 
+    recordingDuration, 
+    audioLevel,
+    presignedUrlRef,
+    startRecording, 
+    stopRecording,
+    cancelRecording
+  } = useVoiceRecorder()
+
+  const handleMicMouseDown = async (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    try {
+      await startRecording()
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  const handleMicMouseUp = async (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    if (!isRecording) return
+    
+    // Minimum 1 second recording
+    if (recordingDuration < 1) {
+      cancelRecording()
+      return
+    }
+
+    try {
+      const recording = await stopRecording()
+      await sendVoiceMessage(recording)
+    } catch (error) {
+      console.error('Failed to send voice message:', error)
+    }
+  }
+
+  const [isProcessingVoice, setIsProcessingVoice] = useState(false);
+
+  const sendVoiceMessage = async (recording: VoiceRecording) => {
+    if (!conversation?.id || !currentUserId) return;
+    setIsProcessingVoice(true);
+    try {
+      let uploadInfo = presignedUrlRef.current
+      if (!uploadInfo) {
+        uploadInfo = await getPresignedUrl('audio/webm', 'webm', 'voice')
+      }
+      await uploadToR2(recording.blob, uploadInfo.presignedUrl, 'audio/webm')
+
+      const { data: message, error } = await supabase
+        .from('messages')
+        .insert({
+          conversation_id: conversation.id,
+          sender_id: currentUserId,
+          content: null,
+          type: 'voice',
+          media_url: uploadInfo.publicUrl,
+          duration_seconds: recording.duration,
+          waveform_data: recording.waveformData,
+          transcript_status: 'none'
+        })
+        .select()
+        .single()
+        
+      if (error) throw error;
+    } finally {
+      setIsProcessingVoice(false);
+    }
+  }
   
   const isGroup = conversation?.isGroup || false;
   const isOnline = conversation?.otherUserId ? onlineUsers.has(conversation.otherUserId) : false;
@@ -92,10 +164,27 @@ export function MainChat({
     return () => { supabase.removeChannel(ch); };
   }, [conversation?.id, supabase]);
 
+  const isInitialLoadRef = useRef(true);
+  const prevConvIdRef = useRef<string | null>(null);
+
   // Auto-scroll to bottom on new messages
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, otherUserTyping]);
+    if (prevConvIdRef.current !== conversation?.id) {
+      isInitialLoadRef.current = true;
+      prevConvIdRef.current = conversation?.id || null;
+    }
+    
+    if (!bottomRef.current) return;
+
+    if (isInitialLoadRef.current && messages.length > 0) {
+      // Initial load with data: snap instantly
+      bottomRef.current.scrollIntoView({ behavior: "auto" });
+      isInitialLoadRef.current = false;
+    } else if (!isInitialLoadRef.current) {
+      // Subsequent messages or typing: smooth scroll
+      bottomRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, otherUserTyping, conversation?.id]);
 
   // Auto-focus input when replyTo is set
   useEffect(() => {
@@ -127,10 +216,38 @@ export function MainChat({
   };
 
   return (
-    <div className="flex-1 h-full bg-white flex relative z-0 overflow-hidden">
-      <div className="flex-1 h-full flex flex-col min-w-0 transition-all">
+    <div className="flex-1 h-full bg-[#F8F9F8] flex relative z-0 overflow-hidden shadow-[inset_0_0_120px_rgba(0,0,0,0.03)]">
+      {/* Premium Chat Background */}
+      <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+        
+        {/* Very subtle Communication Curves (Identity) */}
+        <div className="absolute inset-0 opacity-[0.025]">
+          <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+            <path d="M0,45 C30,35 70,65 100,55" fill="none" stroke="#0D9488" strokeWidth="0.1" />
+            <path d="M0,55 C40,40 60,70 100,45" fill="none" stroke="#0D9488" strokeWidth="0.2" />
+            <path d="M0,35 C50,20 80,60 100,30" fill="none" stroke="#0D9488" strokeWidth="0.1" />
+          </svg>
+        </div>
+
+        {/* Top-right teal ambient glow */}
+        <div className="absolute top-[-10%] right-[-5%] w-[600px] h-[600px] rounded-full bg-[#0D9488] opacity-[0.12] blur-[120px]"></div>
+        
+        {/* Bottom-left gray depth layer */}
+        <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] rounded-full bg-[#787878] opacity-[0.07] blur-[100px]"></div>
+        
+        {/* Center warm neutral glow (Focus Area) */}
+        <div className="absolute top-[20%] left-[10%] w-[80%] h-[60%] rounded-[100%] bg-white opacity-[0.45] blur-[120px]"></div>
+        
+        {/* Tactile Noise/Grain texture */}
+        <div 
+          className="absolute inset-0 opacity-[0.025] mix-blend-multiply" 
+          style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")` }}
+        ></div>
+      </div>
+
+      <div className="flex-1 h-full flex flex-col min-w-0 transition-all relative z-10">
         {/* Header */}
-        <div className="h-16 px-4 md:px-6 flex items-center justify-between border-b border-[#ECECEC] bg-white z-20 shrink-0">
+        <div className="h-16 px-4 md:px-6 flex items-center justify-between border-b border-[#ECECEC]/30 bg-white/70 backdrop-blur-[20px] z-20 shrink-0">
           <div className="flex items-center gap-3">
             {/* Mobile Back Button */}
             {onBack && (
@@ -193,7 +310,7 @@ export function MainChat({
           {showBanner && (
             <motion.div
               initial={{ y: -40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -40, opacity: 0 }}
-              className="h-10 px-4 md:px-5 bg-gradient-to-r from-[#EEF4F3] to-white flex items-center justify-between shrink-0 border-b border-[#ECECEC]/50 z-10"
+              className="h-10 px-4 md:px-5 bg-gradient-to-r from-[#EEF4F3]/90 to-white/90 backdrop-blur-md flex items-center justify-between shrink-0 border-b border-[#ECECEC]/50 z-10"
             >
               <div className="flex items-center gap-2">
                 <Sparkles className="w-3.5 h-3.5 text-brand" />
@@ -211,63 +328,72 @@ export function MainChat({
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto px-4 md:px-6 py-8 custom-scrollbar flex flex-col">
           
-          {/* Date Separator */}
-          <div className="flex items-center justify-center mb-8">
-            <div className="flex-1 h-[1px] bg-gradient-to-r from-transparent via-[#ECECEC] to-[#ECECEC]"></div>
-            <span className="px-4 text-[11px] font-medium text-[#9CA3AF] uppercase tracking-wider">Today</span>
-            <div className="flex-1 h-[1px] bg-gradient-to-l from-transparent via-[#ECECEC] to-[#ECECEC]"></div>
-          </div>
-
           {/* Empty state */}
           {messages.length === 0 && (
-            <div className="flex-1 flex items-center justify-center text-[#9CA3AF] text-sm">
+            <div className="flex-1 flex items-center justify-center text-[#9CA3AF] text-sm mt-8">
               No messages yet. Say hello! 👋
             </div>
           )}
 
           {/* Real Messages */}
-          {messages.map((msg) => {
-            if (msg.type === 'system') {
-              return (
-                <motion.div key={msg.id} layout="position" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center justify-center my-4">
-                  <div className="bg-[#F6F8F7] px-4 py-1.5 rounded-full text-[12px] font-medium text-[#6B7280]">
-                    {msg.content}
-                  </div>
-                </motion.div>
-              );
-            }
-
-            // Deterministic per-user color for group sender names
+          {messages.map((msg, index) => {
+            const currentHeading = formatDateHeading(msg.rawTime || new Date().toISOString());
+            const previousHeading = index > 0 ? formatDateHeading(messages[index - 1].rawTime || new Date().toISOString()) : null;
+            
+            const showHeading = currentHeading !== previousHeading;
+            
             // Deterministic per-user color for group sender names
             const GROUP_COLORS = ['#0D9488', '#8B5CF6', '#F59E0B', '#EF4444', '#3B82F6', '#EC4899'];
             const senderColor = isGroup && !msg.isSent
               ? GROUP_COLORS[msg.sender_id.charCodeAt(0) % GROUP_COLORS.length]
               : undefined;
-
+            
             return (
-              <motion.div
-                key={msg.id}
-                layout="position"
-                initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                transition={{ duration: 0.2, ease: "easeOut" }}
-                className="mb-5 origin-bottom"
-              >
-                <MessageBubble
-                  type={msg.type as any}
-                  isSent={msg.isSent}
-                  text={msg.content}
-                  time={msg.time}
-                  sender={!msg.isSent ? msg.senderName : undefined}
-                  senderColor={senderColor ? `text-[${senderColor}]` : undefined}
-                  showSenderName={isGroup && !msg.isSent}
-                  reactions={msg.reactions}
-                read={msg.read}
-                replyTo={msg.replyTo}
-                onContextMenu={(e) => onContextMenu?.(e, 'message', msg)}
-                onReact={(emoji) => onReact?.(msg.id, emoji)}
-              />
-            </motion.div>
+              <div key={`wrapper-${msg.id}`}>
+                {showHeading && (
+                  <div className="flex items-center justify-center my-8">
+                    <div className="flex-1 h-[1px] bg-gradient-to-r from-transparent via-[#ECECEC] to-[#ECECEC]"></div>
+                    <span className="px-4 text-[11px] font-medium text-[#9CA3AF] uppercase tracking-wider">{currentHeading}</span>
+                    <div className="flex-1 h-[1px] bg-gradient-to-l from-transparent via-[#ECECEC] to-[#ECECEC]"></div>
+                  </div>
+                )}
+                
+                {msg.type === 'system' ? (
+                  <motion.div key={msg.id} layout="position" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center justify-center my-4">
+                    <div className="bg-[#F6F8F7] px-4 py-1.5 rounded-full text-[12px] font-medium text-[#6B7280]">
+                      {msg.content}
+                    </div>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key={msg.id}
+                    layout="position"
+                    initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    transition={{ duration: 0.2, ease: "easeOut" }}
+                    className="mb-5 origin-bottom"
+                  >
+                    <MessageBubble
+                      type={msg.type as any}
+                      isSent={msg.isSent}
+                      text={msg.content || msg.transcript}
+                      time={msg.time}
+                      sender={!msg.isSent ? msg.senderName : undefined}
+                      senderColor={senderColor ? `text-[${senderColor}]` : undefined}
+                      showSenderName={isGroup && !msg.isSent}
+                      reactions={msg.reactions}
+                      read={msg.read}
+                      replyTo={msg.replyTo}
+                      onContextMenu={(e) => onContextMenu?.(e, 'message', msg)}
+                      onReact={(emoji) => onReact?.(msg.id, emoji)}
+                      mediaUrl={msg.media_url}
+                      durationSeconds={msg.duration_seconds}
+                      waveformData={msg.waveform_data}
+                      transcriptStatus={msg.transcript_status as any}
+                    />
+                  </motion.div>
+                )}
+              </div>
             );
           })}
 
@@ -292,9 +418,9 @@ export function MainChat({
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.2, ease: 'easeOut' }}
-              className="overflow-hidden"
+              className="overflow-hidden relative z-20"
             >
-              <div className="px-4 md:px-6 py-2 bg-[#F6F8F7] border-t border-[#ECECEC] flex items-center gap-3">
+              <div className="px-4 md:px-6 py-2 bg-white/60 backdrop-blur-md border-t border-[#ECECEC]/50 flex items-center gap-3">
                 <div className="w-[3px] h-full min-h-[32px] bg-brand rounded-full shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-[12px] font-semibold text-brand truncate">{replyTo.senderName}</p>
@@ -313,30 +439,37 @@ export function MainChat({
 
         {/* Input Bar */}
         {conversation?.mutedUntil ? (
-          <div className="h-[68px] px-4 md:px-6 bg-[#F6F8F7] border-t border-[#ECECEC] flex items-center justify-center shrink-0 pb-1">
+          <div className="h-[68px] px-4 md:px-6 bg-white/80 backdrop-blur-[20px] border-t border-[#ECECEC]/40 flex items-center justify-center shrink-0 pb-1 z-20">
             <p className="text-[13px] text-red-500 font-medium">You have been muted by an admin {conversation.mutedUntil !== 'forever' ? `until ${new Date(conversation.mutedUntil).toLocaleString()}` : 'forever'}</p>
           </div>
         ) : conversation?.isAnnouncementOnly && conversation?.myRole !== 'admin' && conversation?.myRole !== 'moderator' ? (
-          <div className="h-[68px] px-4 md:px-6 bg-[#F6F8F7] border-t border-[#ECECEC] flex items-center justify-center shrink-0 pb-1">
+          <div className="h-[68px] px-4 md:px-6 bg-white/80 backdrop-blur-[20px] border-t border-[#ECECEC]/40 flex items-center justify-center shrink-0 pb-1 z-20">
             <p className="text-[13px] text-[#9CA3AF] font-medium">Only admins can send messages</p>
           </div>
         ) : (
-        <div className="h-[68px] px-4 md:px-6 bg-white border-t border-[#ECECEC] flex items-center gap-3 shrink-0 pb-1">
-          <button className="text-[#6B7280] hover:text-brand transition-colors p-2 rounded-full hover:bg-[#F6F8F7]">
+        <div className="h-[68px] px-4 md:px-6 bg-white/80 backdrop-blur-[20px] border-t border-[#ECECEC]/40 flex items-center gap-3 shrink-0 pb-1 z-20">
+          <button className="text-[#6B7280] hover:text-brand transition-colors p-2 rounded-full hover:bg-black/5">
             <Plus className="w-6 h-6" strokeWidth={1.5} />
           </button>
           
-          <div className="flex-1 h-11 bg-[#F6F8F7] rounded-[24px] flex items-center px-4 focus-within:ring-2 focus-within:ring-brand/20 transition-all">
+          <div className="flex-1 h-11 bg-black/[0.03] rounded-[24px] flex items-center px-4 focus-within:ring-2 focus-within:ring-brand/20 transition-all border border-black/[0.02]">
             <input
               ref={inputRef}
               type="text" 
               value={inputValue}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              placeholder={replyTo ? `Reply to ${replyTo.senderName}...` : `Message ${conversation?.name || '...'}...`}
-              className="flex-1 bg-transparent border-none outline-none text-[#0F0F14] text-[15px] placeholder:text-[#9CA3AF]"
+              disabled={isRecording || isProcessingVoice}
+              placeholder={isProcessingVoice ? "Processing voice note..." : isRecording ? "Recording..." : replyTo ? `Reply to ${replyTo.senderName}...` : `Message ${conversation?.name || '...'}...`}
+              className="flex-1 bg-transparent border-none outline-none text-[#0F0F14] text-[15px] placeholder:text-[#9CA3AF] disabled:opacity-50"
             />
-            <button className="text-[#9CA3AF] hover:text-[#6B7280] transition-colors ml-2">
+            {isRecording && (
+              <div className="flex items-center gap-2 mr-2">
+                <motion.div animate={{ opacity: [1, 0.2, 1] }} transition={{ repeat: Infinity, duration: 1.5 }} className="w-2 h-2 rounded-full bg-red-500" />
+                <span className="text-sm font-medium text-red-500">{recordingDuration}s</span>
+              </div>
+            )}
+            <button className="text-[#9CA3AF] hover:text-[#6B7280] transition-colors ml-2" disabled={isRecording}>
               <Smile className="w-5 h-5" strokeWidth={1.5} />
             </button>
           </div>
@@ -346,9 +479,14 @@ export function MainChat({
               {inputValue.trim().length === 0 ? (
                 <motion.button
                   key="mic"
+                  onMouseDown={handleMicMouseDown}
+                  onMouseUp={handleMicMouseUp}
+                  onMouseLeave={handleMicMouseUp}
+                  onTouchStart={handleMicMouseDown}
+                  onTouchEnd={handleMicMouseUp}
                   initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.8, opacity: 0 }}
                   transition={{ type: "spring", stiffness: 300, damping: 25 }}
-                  className="absolute text-brand hover:bg-brand/10 p-2 rounded-full transition-colors"
+                  className={`absolute p-2 rounded-full transition-all ${isRecording ? 'bg-red-50 text-red-500 scale-125' : 'text-brand hover:bg-brand/10'}`}
                 >
                   <Mic className="w-[22px] h-[22px]" strokeWidth={1.5} />
                 </motion.button>
