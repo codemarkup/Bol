@@ -14,7 +14,7 @@ import {
 type ContextMenuType = 'message' | 'chat' | 'background' | 'contact';
 
 interface ContextMenuProps {
-  contextMenu: { type: ContextMenuType; x: number; y: number };
+  contextMenu: { type: ContextMenuType; x: number; y: number; message?: any; chat?: any };
   onClose: () => void;
   onAction?: (action: string, payload?: any) => void;
 }
