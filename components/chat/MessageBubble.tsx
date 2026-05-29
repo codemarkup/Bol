@@ -98,7 +98,7 @@ function ReactionHoverPanel({ isSent, onReact, showPanel, setShowPanel }: { isSe
 }
 
 type MessageBubbleProps = {
-  type: "text" | "voice" | "image" | "ai_summary" | "typing";
+  type: "text" | "voice" | "image" | "video" | "ai_summary" | "typing";
   isSent: boolean;
   text?: string;
   time?: string;
@@ -158,7 +158,7 @@ export function MessageBubble({ type, isSent, text, time, sender, senderColor, s
     );
   }
 
-  if (type === "image") {
+  if (type === "image" || type === "video") {
     return (
       <motion.div 
         initial={{ opacity: 0, x: isSent ? 10 : -10 }} animate={{ opacity: 1, x: 0 }} transition={{ type: "spring", stiffness: 300, damping: 25 }}
@@ -166,13 +166,18 @@ export function MessageBubble({ type, isSent, text, time, sender, senderColor, s
       >
         <div className="relative max-w-[65%] group" onContextMenu={onContextMenu}>
           <div className={`relative flex flex-col shadow-[0_6px_20px_rgba(0,0,0,0.06)] p-1.5 ${isSent ? "bg-[#111827] text-white rounded-[18px] rounded-tr-[4px]" : "bg-white border border-[#ECECEC] text-[#0F0F14] rounded-[18px] rounded-tl-[4px]"}`}>
-            <div className="relative w-full sm:w-[280px] h-[180px] bg-gradient-to-br from-gray-200 to-gray-300 rounded-xl overflow-hidden flex items-center justify-center">
-              <ImageIcon className="w-8 h-8 text-gray-400 opacity-50" />
-              <div className="absolute bottom-2 right-2 bg-black/50 backdrop-blur-md px-2 py-1 rounded-md text-white text-[10px] font-medium">3+</div>
+            <div className="relative w-full sm:w-[280px] bg-gradient-to-br from-gray-200 to-gray-300 rounded-xl overflow-hidden flex items-center justify-center min-h-[120px]">
+              {type === 'image' ? (
+                <img src={mediaUrl} alt="Image" className="w-full h-auto max-h-[300px] object-cover" />
+              ) : (
+                <video src={mediaUrl} controls className="w-full h-auto max-h-[300px] object-cover" />
+              )}
             </div>
-            <div className="flex justify-end mt-1 mr-1">
-              <span className={`text-[10px] ${isSent ? "text-white/50" : "text-[#9CA3AF]"}`}>{time}</span>
-              {isSent && <span className={`ml-1 text-[10px] ${read ? "text-[#00E5FF] drop-shadow-[0_0_2px_rgba(0,229,255,0.4)]" : "text-white/50"}`}>✓✓</span>}
+            <div className="flex justify-between items-center mt-1 px-1">
+              <span className={`text-[10px] ${isSent ? "text-white/50" : "text-[#9CA3AF]"}`}>
+                {time}
+                {isSent && <span className={`ml-1 text-[10px] ${read ? "text-[#00E5FF] drop-shadow-[0_0_2px_rgba(0,229,255,0.4)]" : "text-white/50"}`}>✓✓</span>}
+              </span>
             </div>
           </div>
           {reactions && reactions.length > 0 && (

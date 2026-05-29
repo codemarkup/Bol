@@ -124,6 +124,44 @@ export function MainChat({
       setIsProcessingVoice(false);
     }
   }
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+
+  const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !conversation?.id || !currentUserId) return;
+    
+    e.target.value = ''; // Reset so same file can be selected again
+    
+    const isVideo = file.type.startsWith('video/');
+    const isImage = file.type.startsWith('image/');
+    if (!isVideo && !isImage) return;
+
+    setIsUploadingMedia(true);
+    try {
+      const ext = file.name.split('.').pop() || (isVideo ? 'mp4' : 'jpg');
+      const { presignedUrl, publicUrl } = await getPresignedUrl(file.type, ext, isVideo ? 'video' : 'image');
+      
+      await uploadToR2(file, presignedUrl, file.type);
+      
+      const { error } = await supabase
+        .from('messages')
+        .insert({
+          conversation_id: conversation.id,
+          sender_id: currentUserId,
+          type: isVideo ? 'video' : 'image',
+          media_url: publicUrl,
+          content: null
+        });
+        
+      if (error) throw error;
+    } catch (error) {
+      console.error('Failed to upload media:', error);
+    } finally {
+      setIsUploadingMedia(false);
+    }
+  };
   
   const isGroup = conversation?.isGroup || false;
   const isOnline = conversation?.otherUserId ? onlineUsers.has(conversation.otherUserId) : false;
@@ -448,8 +486,19 @@ export function MainChat({
           </div>
         ) : (
         <div className="h-[68px] px-4 md:px-6 bg-white/80 backdrop-blur-[20px] border-t border-[#ECECEC]/40 flex items-center gap-3 shrink-0 pb-1 z-20">
-          <button className="text-[#6B7280] hover:text-brand transition-colors p-2 rounded-full hover:bg-black/5">
-            <Plus className="w-6 h-6" strokeWidth={1.5} />
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleMediaUpload} 
+            accept="image/*,video/*" 
+            className="hidden" 
+          />
+          <button 
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploadingMedia}
+            className={`transition-colors p-2 rounded-full ${isUploadingMedia ? 'text-brand animate-pulse' : 'text-[#6B7280] hover:text-brand hover:bg-black/5'}`}
+          >
+            <Plus className={`w-6 h-6 ${isUploadingMedia ? 'animate-spin' : ''}`} strokeWidth={1.5} />
           </button>
           
           <div className="flex-1 h-11 bg-black/[0.03] rounded-[24px] flex items-center px-4 focus-within:ring-2 focus-within:ring-brand/20 transition-all border border-black/[0.02]">
