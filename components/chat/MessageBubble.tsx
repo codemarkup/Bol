@@ -307,7 +307,7 @@ function VoiceBubble(props: MessageBubbleProps) {
 
   const duration = durationSeconds || 0;
   const progress = duration > 0 ? currentTime / duration : 0;
-  const displayWaveform = waveformData.length > 0 ? waveformData : Array.from({ length: 40 }).map(() => 0.1);
+  const displayWaveform = waveformData && waveformData.length > 0 ? waveformData : Array.from({ length: 40 }).map(() => 0.1);
 
   return (
     <motion.div 
