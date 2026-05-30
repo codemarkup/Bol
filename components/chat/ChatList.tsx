@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { SquarePen, SlidersHorizontal, Search, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { ConversationItem } from "@/hooks/useConversations";
+import { renderTextWithEmojis } from "./MessageBubble";
 
 const filters = ["All", "Unread", "Groups", "Archived"];
 
@@ -167,7 +168,7 @@ export function ChatList({
                       </div>
                     )}
                     <span className={`text-[13px] truncate ${chat.unread > 0 ? "text-[#0F0F14] font-medium" : "text-[#6B7280]"}`}>
-                      {chat.message}
+                      {renderTextWithEmojis(chat.message)}
                     </span>
                   </div>
 

@@ -8,7 +8,7 @@ import EmojiPicker, { Emoji, EmojiStyle } from 'emoji-picker-react';
 const COMMON_EMOJIS = ["❤️", "😂", "😮", "😢", "🙏", "👍"];
 const toUnified = (emoji: string) => [...emoji].map(c => c.codePointAt(0)?.toString(16)).join('-');
 
-const renderTextWithEmojis = (text?: string | null) => {
+export const renderTextWithEmojis = (text?: string | null) => {
   if (!text) return null;
   try {
     const regex = new RegExp('([\\p{RGI_Emoji}])', 'v');

@@ -558,6 +558,7 @@ export function MainChat({
               disabled={isRecording || isProcessingVoice}
               placeholder={isProcessingVoice ? "Processing voice note..." : isRecording ? "Recording..." : replyTo ? `Reply to ${replyTo.senderName}...` : `Message ${conversation?.name || '...'}...`}
               className="flex-1 bg-transparent border-none outline-none text-[#0F0F14] text-[15px] placeholder:text-[#9CA3AF] disabled:opacity-50"
+              style={{ fontFamily: '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif' }}
             />
             {isRecording && (
               <div className="flex items-center gap-2 mr-2">
