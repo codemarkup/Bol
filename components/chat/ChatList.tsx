@@ -140,8 +140,12 @@ export function ChatList({
 
               {/* Avatar */}
               <div className="relative shrink-0">
-                <div className={`w-[46px] h-[46px] rounded-full flex items-center justify-center font-bold text-[15px] ${chat.color}`}>
-                  {chat.initials}
+                <div className={`w-[46px] h-[46px] rounded-full flex items-center justify-center font-bold text-[15px] overflow-hidden ${!chat.avatarUrl ? chat.color : 'bg-gray-100'}`}>
+                  {chat.avatarUrl ? (
+                    <img src={chat.avatarUrl} alt={chat.name} className="w-full h-full object-cover" />
+                  ) : (
+                    chat.initials
+                  )}
                 </div>
                 {chat.online && (
                   <div className="absolute bottom-0 right-0 w-3 h-3 bg-[#22C55E] rounded-full border-2 border-white z-10"></div>

@@ -8,6 +8,30 @@ import EmojiPicker, { Emoji, EmojiStyle } from 'emoji-picker-react';
 const COMMON_EMOJIS = ["❤️", "😂", "😮", "😢", "🙏", "👍"];
 const toUnified = (emoji: string) => [...emoji].map(c => c.codePointAt(0)?.toString(16)).join('-');
 
+const renderTextWithEmojis = (text?: string | null) => {
+  if (!text) return null;
+  try {
+    const regex = new RegExp('([\\p{RGI_Emoji}])', 'v');
+    const parts = text.split(regex);
+    return (
+      <span className="inline-flex flex-wrap items-center gap-x-[1px] align-middle">
+        {parts.map((part, i) => {
+          if (part.match(regex)) {
+            return (
+              <span key={i} className="inline-flex relative top-[3px] mx-[1px]">
+                <Emoji unified={toUnified(part)} emojiStyle={EmojiStyle.APPLE} size={20} />
+              </span>
+            );
+          }
+          return <span key={i} className="whitespace-pre-wrap">{part}</span>;
+        })}
+      </span>
+    );
+  } catch (e) {
+    return <span className="whitespace-pre-wrap">{text}</span>;
+  }
+};
+
 function ReactionHoverPanel({ isSent, onReact, showPanel, setShowPanel }: { isSent: boolean, onReact?: (emoji: string) => void, showPanel: boolean, setShowPanel: (s: boolean) => void }) {
   const [showFullPicker, setShowFullPicker] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -114,11 +138,36 @@ type MessageBubbleProps = {
   durationSeconds?: number;
   waveformData?: number[];
   transcriptStatus?: 'none' | 'processing' | 'done' | 'failed';
+  messageId?: string;
+  onMediaClick?: () => void;
+  isDeleted?: boolean;
 };
 
-export function MessageBubble({ type, isSent, text, time, sender, senderColor, showSenderName, reactions, read, replyTo, onContextMenu, onReact, mediaUrl, durationSeconds, waveformData, transcriptStatus }: MessageBubbleProps) {
+export function MessageBubble(props: MessageBubbleProps) {
+  const { type, isSent, text, time, sender, senderColor, showSenderName, reactions, read, replyTo, onContextMenu, onReact, mediaUrl, durationSeconds, waveformData, transcriptStatus, messageId, onMediaClick, isDeleted } = props;
   const [showReactionPanel, setShowReactionPanel] = useState(false);
   
+  if (isDeleted) {
+    return (
+      <div className={`flex w-full ${isSent ? "justify-end" : "justify-start"} mb-2`}>
+        <div 
+          onContextMenu={onContextMenu}
+          className={`px-3 py-2 md:px-4 md:py-2.5 rounded-[18px] flex items-center gap-2 max-w-[85%] md:max-w-[70%] border border-[#ECECEC]/50 shadow-sm ${
+            isSent ? "bg-[#F3F4F6] text-[#6B7280] rounded-tr-[4px]" : "bg-[#F9FAFB] text-[#6B7280] rounded-tl-[4px]"
+          }`}
+        >
+          <div className="flex items-center gap-2 opacity-70">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line></svg>
+            <span className="text-[14px] italic leading-[1.4] tracking-[-0.01em]">This message was deleted</span>
+          </div>
+          <div className="flex items-center gap-1 mt-1 shrink-0 self-end ml-2 opacity-60">
+            <span className="text-[10px] uppercase font-medium">{time}</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (type === "typing") {
     return (
       <motion.div 
@@ -159,6 +208,9 @@ export function MessageBubble({ type, isSent, text, time, sender, senderColor, s
   }
 
   if (type === "image" || type === "video") {
+    const actualMediaUrl = mediaUrl || text || "";
+    const isActuallyVideo = String(actualMediaUrl).toLowerCase().match(/\.(mp4|webm|mov|quicktime|mkv)(\?.*)?$/) || type === "video" || String(actualMediaUrl).includes("type=video");
+    
     return (
       <motion.div 
         initial={{ opacity: 0, x: isSent ? 10 : -10 }} animate={{ opacity: 1, x: 0 }} transition={{ type: "spring", stiffness: 300, damping: 25 }}
@@ -166,12 +218,24 @@ export function MessageBubble({ type, isSent, text, time, sender, senderColor, s
       >
         <div className="relative max-w-[65%] group" onContextMenu={onContextMenu}>
           <div className={`relative flex flex-col shadow-[0_6px_20px_rgba(0,0,0,0.06)] p-1.5 ${isSent ? "bg-[#111827] text-white rounded-[18px] rounded-tr-[4px]" : "bg-white border border-[#ECECEC] text-[#0F0F14] rounded-[18px] rounded-tl-[4px]"}`}>
-            <div className="relative w-full sm:w-[280px] bg-gradient-to-br from-gray-200 to-gray-300 rounded-xl overflow-hidden flex items-center justify-center min-h-[120px]">
-              {type === 'image' ? (
-                <img src={mediaUrl} alt="Image" className="w-full h-auto max-h-[300px] object-cover" />
-              ) : (
-                <video src={mediaUrl} controls className="w-full h-auto max-h-[300px] object-cover" />
-              )}
+            <div 
+              className="relative w-full sm:w-[280px] bg-gradient-to-br from-gray-200 to-gray-300 rounded-xl overflow-hidden flex items-center justify-center min-h-[120px] cursor-pointer group/media"
+              onClick={onMediaClick}
+            >
+              <motion.div layoutId={`media-${messageId}`} className="relative w-full h-full flex items-center justify-center">
+                {!isActuallyVideo ? (
+                  <img src={actualMediaUrl} alt="Image" className="w-full h-auto max-h-[300px] object-cover group-hover/media:brightness-90 transition-all" />
+                ) : (
+                  <div className="relative w-full h-full">
+                    <video src={actualMediaUrl} className="w-full h-auto max-h-[300px] object-cover group-hover/media:brightness-90 transition-all pointer-events-none" />
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="w-12 h-12 bg-black/40 backdrop-blur-md rounded-full flex items-center justify-center text-white">
+                        <Play className="w-5 h-5 ml-1" fill="currentColor" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </motion.div>
             </div>
             <div className="flex justify-between items-center mt-1 px-1">
               <span className={`text-[10px] ${isSent ? "text-white/50" : "text-[#9CA3AF]"}`}>
@@ -197,7 +261,7 @@ export function MessageBubble({ type, isSent, text, time, sender, senderColor, s
   }
 
   if (type === "voice") {
-    return <VoiceBubble {...arguments[0]} />
+    return <VoiceBubble {...props} />
   }
 
   return (
@@ -222,7 +286,7 @@ export function MessageBubble({ type, isSent, text, time, sender, senderColor, s
             </div>
           )}
           <div className="flex items-end gap-2">
-            <p className="text-[14px] leading-relaxed whitespace-pre-wrap">{text}</p>
+            <p className="text-[14px] leading-relaxed whitespace-pre-wrap flex items-center flex-wrap">{renderTextWithEmojis(text)}</p>
             <div className="flex justify-end items-center gap-1 shrink-0 pb-0.5 opacity-80">
               <span className={`text-[11px] ${isSent ? "text-white" : "text-[#9CA3AF]"}`}>{time}</span>
               {isSent && <span className={`text-[13px] leading-none ${read ? "text-[#00E5FF] drop-shadow-[0_0_2px_rgba(0,229,255,0.4)]" : "text-white/60"}`}>✓✓</span>}

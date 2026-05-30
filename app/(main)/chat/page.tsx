@@ -24,6 +24,7 @@ export default function ChatPage() {
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ type: 'message' | 'chat' | 'background', x: number, y: number, message?: any, chat?: any } | null>(null);
   const [replyTo, setReplyTo] = useState<{ id: string; content: string; senderName: string } | null>(null);
+  const [deleteModalMessage, setDeleteModalMessage] = useState<any>(null);
 
   // Read ?id from URL if present to open a chat immediately
   useEffect(() => {
@@ -252,6 +253,9 @@ export default function ChatPage() {
                   })
                 });
               }
+              else if (action === 'delete_message' && contextMenu?.message) {
+                setDeleteModalMessage(contextMenu.message);
+              }
               else alert(`Feature '${action}' coming soon!`);
             }} />
         )}
@@ -259,6 +263,45 @@ export default function ChatPage() {
 
       <NewChatModal isOpen={isNewChatModalOpen} onClose={() => setIsNewChatModalOpen(false)}
         onStartChat={handleStartChat} />
+
+      {/* Delete Message Modal */}
+      <AnimatePresence>
+        {deleteModalMessage && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setDeleteModalMessage(null)} />
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden p-6 text-center">
+              <h3 className="text-lg font-bold text-[#0F0F14] mb-2">Delete message?</h3>
+              <div className="flex flex-col gap-3 mt-6">
+                {deleteModalMessage.isSent && (
+                  <button onClick={async () => {
+                    await fetch('/api/messages/delete', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ messageId: deleteModalMessage.id, type: 'everyone', userId: currentUser.id })
+                    });
+                    setDeleteModalMessage(null);
+                  }} className="w-full py-3 px-4 rounded-xl font-medium transition-colors bg-red-50 text-red-500 hover:bg-red-100">
+                    Delete for everyone
+                  </button>
+                )}
+                <button onClick={async () => {
+                  await fetch('/api/messages/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messageId: deleteModalMessage.id, type: 'me', userId: currentUser.id })
+                  });
+                  setDeleteModalMessage(null);
+                }} className="w-full py-3 px-4 rounded-xl font-medium transition-colors border border-[#ECECEC] text-[#0F0F14] hover:bg-gray-50">
+                  Delete for me
+                </button>
+                <button onClick={() => setDeleteModalMessage(null)} className="w-full py-3 px-4 rounded-xl font-medium transition-colors text-[#6B7280] hover:bg-gray-50">
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

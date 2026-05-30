@@ -16,7 +16,18 @@ export function ProfileNavigation({ onEditProfile }: ProfileNavigationProps) {
   const [displayName, setDisplayName] = useState(cached?.displayName || "");
   const [username, setUsername] = useState(cached?.username || "");
   const [phone, setPhone] = useState(cached?.phone || "");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(cached?.avatarUrl || null);
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      const newCached = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
+      if (newCached.avatarUrl !== undefined) setAvatarUrl(newCached.avatarUrl);
+      if (newCached.displayName !== undefined) setDisplayName(newCached.displayName);
+    };
+    window.addEventListener('bol_profile_updated', handleUpdate);
+    return () => window.removeEventListener('bol_profile_updated', handleUpdate);
+  }, []);
 
   useEffect(() => {
     async function loadData() {
@@ -29,12 +40,16 @@ export function ProfileNavigation({ onEditProfile }: ProfileNavigationProps) {
         displayName: profile?.full_name || "",
         phone: profile?.phone_number || "",
         username: usernameData?.username || "",
+        avatarUrl: profile?.avatar_url || null,
+        email: user.email || "", // preserve email if it existed
+        about: profile?.bio || "", // preserve about if it existed
       };
 
       // Update UI with fresh data
       setDisplayName(fresh.displayName);
       setPhone(fresh.phone);
       setUsername(fresh.username);
+      setAvatarUrl(fresh.avatarUrl);
 
       // Save to cache for next page load
       localStorage.setItem(CACHE_KEY, JSON.stringify(fresh));
@@ -53,14 +68,18 @@ export function ProfileNavigation({ onEditProfile }: ProfileNavigationProps) {
     <div className="w-[320px] lg:w-[380px] h-full border-r border-[#ECECEC] flex flex-col p-4 bg-white overflow-y-auto">
       <h1 className="text-2xl font-bold mb-6">Profile</h1>
       
-      <div className="flex flex-col items-center justify-center mb-8">
-        <div className="relative">
-          <div className="w-24 h-24 bg-[#0D9488] text-white rounded-full flex items-center justify-center text-4xl font-bold shadow-md uppercase">
-            {displayName ? displayName.charAt(0) : 'S'}
+      <div className="flex flex-col items-center justify-center p-6 border-b border-[#ECECEC] bg-[#F9FAFB]/50">
+        <div className="relative mb-4">
+          <div className="w-24 h-24 bg-[#0D9488] text-white rounded-full flex items-center justify-center text-4xl font-bold shadow-sm uppercase overflow-hidden">
+            {avatarUrl ? (
+              <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+            ) : (
+              displayName ? displayName.charAt(0) : 'S'
+            )}
           </div>
-          <div className="absolute bottom-0 right-0 w-5 h-5 bg-green-500 border-4 border-white rounded-full"></div>
+          <div className="absolute bottom-1 right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white"></div>
         </div>
-        <h2 className="mt-4 text-xl font-bold text-[#0F0F14]">{displayName || "Set your name"}</h2>
+        <h2 className="text-xl font-bold text-[#0F0F14]">{displayName || 'User'}</h2>
         <p className="text-[#6B7280] font-medium mt-1">Online</p>
       </div>
 

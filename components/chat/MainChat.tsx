@@ -12,6 +12,12 @@ import { createClient } from "@/lib/supabase/client";
 import { formatLastSeen, formatDateHeading } from "@/lib/supabase/chat";
 import { useVoiceRecorder, VoiceRecording } from "@/hooks/useVoiceRecorder";
 import { getPresignedUrl, uploadToR2 } from "@/lib/uploadToR2";
+import dynamic from 'next/dynamic';
+
+const EmojiPicker = dynamic(
+  () => import('emoji-picker-react'),
+  { ssr: false }
+);
 
 export function MainChat({ 
   conversation,
@@ -100,7 +106,7 @@ export function MainChat({
     try {
       let uploadInfo = presignedUrlRef.current
       if (!uploadInfo) {
-        uploadInfo = await getPresignedUrl('audio/webm', 'webm', 'voice')
+        uploadInfo = await getPresignedUrl('audio/webm', 'webm', 'voice', conversation.id)
       }
       await uploadToR2(recording.blob, uploadInfo.presignedUrl, 'audio/webm')
 
@@ -127,6 +133,26 @@ export function MainChat({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const emojiPickerRef = useRef<HTMLDivElement>(null);
+
+  // Close emoji picker when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target as Node)) {
+        const target = e.target as HTMLElement;
+        if (!target.closest('.emoji-toggle-btn')) {
+          setShowEmojiPicker(false);
+        }
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleEmojiClick = (emojiData: any) => {
+    setInputValue((prev) => prev + emojiData.emoji);
+  };
 
   const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -141,7 +167,7 @@ export function MainChat({
     setIsUploadingMedia(true);
     try {
       const ext = file.name.split('.').pop() || (isVideo ? 'mp4' : 'jpg');
-      const { presignedUrl, publicUrl } = await getPresignedUrl(file.type, ext, isVideo ? 'video' : 'image');
+      const { presignedUrl, publicUrl } = await getPresignedUrl(file.type, ext, isVideo ? 'video' : 'image', conversation.id);
       
       await uploadToR2(file, presignedUrl, file.type);
       
@@ -485,7 +511,28 @@ export function MainChat({
             <p className="text-[13px] text-[#9CA3AF] font-medium">Only admins can send messages</p>
           </div>
         ) : (
-        <div className="h-[68px] px-4 md:px-6 bg-white/80 backdrop-blur-[20px] border-t border-[#ECECEC]/40 flex items-center gap-3 shrink-0 pb-1 z-20">
+        <div className="h-[68px] px-4 md:px-6 bg-white/80 backdrop-blur-[20px] border-t border-[#ECECEC]/40 flex items-center gap-3 shrink-0 pb-1 z-20 relative">
+          <AnimatePresence>
+            {showEmojiPicker && (
+              <motion.div
+                ref={emojiPickerRef}
+                initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 20, scale: 0.95 }}
+                transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                className="absolute bottom-full mb-2 left-4 md:left-6 z-50 shadow-2xl rounded-[18px] overflow-hidden bg-white border border-[#ECECEC]"
+              >
+                <EmojiPicker 
+                  emojiStyle={"apple" as any}
+                  onEmojiClick={handleEmojiClick}
+                  width={320}
+                  height={400}
+                  lazyLoadEmojis={true}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           <input 
             type="file" 
             ref={fileInputRef} 
@@ -518,7 +565,7 @@ export function MainChat({
                 <span className="text-sm font-medium text-red-500">{recordingDuration}s</span>
               </div>
             )}
-            <button className="text-[#9CA3AF] hover:text-[#6B7280] transition-colors ml-2" disabled={isRecording}>
+            <button type="button" onClick={() => setShowEmojiPicker(prev => !prev)} className="emoji-toggle-btn text-[#9CA3AF] hover:text-[#6B7280] transition-colors ml-2" disabled={isRecording}>
               <Smile className="w-5 h-5" strokeWidth={1.5} />
             </button>
           </div>
@@ -554,7 +601,6 @@ export function MainChat({
           </div>
         </div>
         )}
-
       </div>
 
       {/* Group Info Panel */}

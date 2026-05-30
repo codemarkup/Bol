@@ -18,6 +18,7 @@ export type ConversationItem = {
   isAnnouncementOnly?: boolean;
   myRole?: string;
   mutedUntil?: string;
+  avatarUrl?: string | null;
 };
 
 export function useConversations(currentUserId: string | null) {
@@ -69,11 +70,11 @@ export function useConversations(currentUserId: string | null) {
     const otherUserIds = Array.from(new Set((otherMembers || []).map(m => m.user_id)));
     const { data: profiles } = await supabase
       .from('profiles')
-      .select('id, full_name')
+      .select('id, full_name, avatar_url')
       .in('id', otherUserIds);
 
-    const profileMap: Record<string, string> = {};
-    profiles?.forEach(p => { profileMap[p.id] = p.full_name; });
+    const profileMap: Record<string, { name: string; avatarUrl: string | null }> = {};
+    profiles?.forEach(p => { profileMap[p.id] = { name: p.full_name, avatarUrl: p.avatar_url }; });
 
     // Step 3.5: get muted status
     const { data: muted } = await supabase
@@ -123,8 +124,9 @@ export function useConversations(currentUserId: string | null) {
       const lastMsg = lastMsgMap[conv.id];
       const others = otherMemberMap[conv.id] || [];
       const isGroup = conv.type === 'group';
+      const otherUser = profileMap[others[0]?.user_id];
       const name = !isGroup
-        ? (profileMap[others[0]?.user_id] || 'Unknown')
+        ? (otherUser?.name || 'Unknown')
         : (conv.name || 'Group');
 
       // For groups: "SenderName: message content" prefix
@@ -132,7 +134,7 @@ export function useConversations(currentUserId: string | null) {
       if (lastMsg) {
         if (lastMsg.type === 'text') {
           if (isGroup) {
-            const senderName = profileMap[lastMsg.sender_id] || 'Someone';
+            const senderName = profileMap[lastMsg.sender_id]?.name || 'Someone';
             messagePreview = `${senderName}: ${lastMsg.content}`;
           } else {
             messagePreview = lastMsg.content;
@@ -158,6 +160,7 @@ export function useConversations(currentUserId: string | null) {
         isAnnouncementOnly: conv.is_announcement_only,
         myRole: memberships.find(m => m.conversation_id === conv.id)?.role,
         mutedUntil: mutedMap[conv.id],
+        avatarUrl: !isGroup ? otherUser?.avatarUrl : null,
       };
     });
 

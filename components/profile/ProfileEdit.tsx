@@ -3,6 +3,8 @@ import { ArrowLeft, Camera, Shield, LogOut, Trash2, Loader2, Check, X } from "lu
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
+import { ImageCropperModal } from "./ImageCropperModal";
+import { getPresignedUrl, uploadToR2 } from "@/lib/uploadToR2";
 
 interface ProfileEditProps {
   onBack: () => void;
@@ -24,7 +26,12 @@ export function ProfileEdit({ onBack }: ProfileEditProps) {
   const [about, setAbout] = useState(cached?.about || "");
   const [phone, setPhone] = useState(cached?.phone || "");
   const [email, setEmail] = useState(cached?.email || "");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(cached?.avatarUrl || null);
   const [usernameStatus, setUsernameStatus] = useState<"idle" | "checking" | "available" | "taken">("idle");
+  const [cropModalOpen, setCropModalOpen] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     async function loadData() {
@@ -41,6 +48,7 @@ export function ProfileEdit({ onBack }: ProfileEditProps) {
         phone: profile?.phone_number || "",
         email: user.email || "",
         username: usernameData?.username || "",
+        avatarUrl: profile?.avatar_url || null,
       };
 
       setDisplayName(fresh.displayName);
@@ -48,6 +56,7 @@ export function ProfileEdit({ onBack }: ProfileEditProps) {
       setPhone(fresh.phone);
       setEmail(fresh.email);
       setUsername(fresh.username);
+      setAvatarUrl(fresh.avatarUrl);
       originalUsername.current = fresh.username;
 
       // Update cache with latest from server
@@ -105,6 +114,50 @@ export function ProfileEdit({ onBack }: ProfileEditProps) {
     }
   };
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    setSelectedImage(url);
+    setCropModalOpen(true);
+    e.target.value = ''; // reset
+  };
+
+  const handleCrop = async (blob: Blob) => {
+    setCropModalOpen(false);
+    setSelectedImage(null);
+    if (!user) return;
+
+    setUploadingAvatar(true);
+    try {
+      const file = new File([blob], `avatar_${Date.now()}.jpg`, { type: 'image/jpeg' });
+      const { presignedUrl, publicUrl } = await getPresignedUrl('image/jpeg', 'jpg', 'avatar');
+      await uploadToR2(file, presignedUrl, 'image/jpeg');
+      
+      await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', user.id);
+      setAvatarUrl(publicUrl);
+      
+      // Update cache
+      const newCache = { ...cached, avatarUrl: publicUrl };
+      localStorage.setItem(CACHE_KEY, JSON.stringify(newCache));
+      window.dispatchEvent(new Event('bol_profile_updated'));
+    } catch (error) {
+      console.error("Avatar upload failed:", error);
+    }
+    setUploadingAvatar(false);
+  };
+
+  const handleRemovePhoto = async () => {
+    if (!user || !avatarUrl) return;
+    setUploadingAvatar(true);
+    await supabase.from('profiles').update({ avatar_url: null }).eq('id', user.id);
+    setAvatarUrl(null);
+    const newCache = { ...cached, avatarUrl: null };
+    localStorage.setItem(CACHE_KEY, JSON.stringify(newCache));
+    window.dispatchEvent(new Event('bol_profile_updated'));
+    setUploadingAvatar(false);
+  };
+
   const containerVars = {
     hidden: { opacity: 0 },
     show: {
@@ -142,21 +195,32 @@ export function ProfileEdit({ onBack }: ProfileEditProps) {
           >
             {/* Avatar Section */}
             <motion.div variants={itemVars} className="flex flex-col items-center sm:flex-row sm:items-start gap-6">
-              <div className="relative group cursor-pointer">
-                <div className="w-24 h-24 bg-[#0D9488] text-white rounded-full flex items-center justify-center text-4xl font-bold shadow-sm uppercase">
-                  {displayName ? displayName.charAt(0) : 'S'}
+              <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept="image/*" className="hidden" />
+              <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+                <div className="w-24 h-24 bg-[#0D9488] text-white rounded-full flex items-center justify-center text-4xl font-bold shadow-sm uppercase overflow-hidden">
+                  {uploadingAvatar ? (
+                    <Loader2 className="w-8 h-8 animate-spin text-white" />
+                  ) : avatarUrl ? (
+                    <img src={avatarUrl} className="w-full h-full object-cover" alt="Profile" />
+                  ) : (
+                    displayName ? displayName.charAt(0) : 'S'
+                  )}
                 </div>
-                <div className="absolute inset-0 bg-black/40 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                  <Camera className="w-6 h-6 text-white" />
-                </div>
+                {!uploadingAvatar && (
+                  <div className="absolute inset-0 bg-black/40 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                    <Camera className="w-6 h-6 text-white" />
+                  </div>
+                )}
               </div>
               <div className="flex flex-col items-center sm:items-start gap-2 pt-2">
-                <button className="text-[#0D9488] font-semibold text-sm hover:underline">
+                <button onClick={() => fileInputRef.current?.click()} disabled={uploadingAvatar} className="text-[#0D9488] font-semibold text-sm hover:underline disabled:opacity-50">
                   Upload new photo
                 </button>
-                <button className="text-red-500 font-semibold text-sm hover:underline">
-                  Remove photo
-                </button>
+                {avatarUrl && (
+                  <button onClick={handleRemovePhoto} disabled={uploadingAvatar} className="text-red-500 font-semibold text-sm hover:underline disabled:opacity-50">
+                    Remove photo
+                  </button>
+                )}
                 <p className="text-xs text-[#6B7280] mt-1 text-center sm:text-left">
                   Recommended size: 512x512px. Maximum size: 5MB.
                 </p>
@@ -291,6 +355,19 @@ export function ProfileEdit({ onBack }: ProfileEditProps) {
           </motion.div>
         </div>
       </div>
+
+      <AnimatePresence>
+        {cropModalOpen && selectedImage && (
+          <ImageCropperModal
+            imageUrl={selectedImage}
+            onCrop={handleCrop}
+            onCancel={() => {
+              setCropModalOpen(false);
+              setSelectedImage(null);
+            }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

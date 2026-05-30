@@ -9,6 +9,7 @@ export interface VoiceRecording {
 
 export function useVoiceRecorder() {
   const [isRecording, setIsRecording] = useState(false)
+  const [isPaused, setIsPaused] = useState(false)
   const [recordingDuration, setRecordingDuration] = useState(0)
   const [audioLevel, setAudioLevel] = useState(0)
   
@@ -17,10 +18,18 @@ export function useVoiceRecorder() {
   const analyserRef = useRef<AnalyserNode | null>(null)
   const chunksRef = useRef<Blob[]>([])
   const timerRef = useRef<NodeJS.Timeout | null>(null)
+  const isStartingRef = useRef(false)
   const waveformDataRef = useRef<number[]>([])
   const presignedUrlRef = useRef<{ presignedUrl: string; publicUrl: string; key: string } | null>(null)
 
   const startRecording = useCallback(async () => {
+    if (isStartingRef.current) return;
+    isStartingRef.current = true;
+    
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
@@ -116,11 +125,18 @@ export function useVoiceRecorder() {
       collectWaveform()
 
       // Duration timer
+      if (timerRef.current) clearInterval(timerRef.current);
       timerRef.current = setInterval(() => {
-        setRecordingDuration(prev => prev + 1)
+        setRecordingDuration(prev => {
+          // If paused, don't increment duration
+          if (mediaRecorderRef.current?.state === 'paused') return prev;
+          return prev + 1;
+        })
       }, 1000)
 
+      isStartingRef.current = false;
     } catch (error) {
+      isStartingRef.current = false;
       console.error('Microphone access denied:', error)
       throw new Error('Microphone permission denied')
     }
@@ -164,7 +180,10 @@ export function useVoiceRecorder() {
   }, [recordingDuration])
 
   const cancelRecording = useCallback(() => {
-    if (timerRef.current) clearInterval(timerRef.current)
+    if (timerRef.current) {
+      clearInterval(timerRef.current)
+      timerRef.current = null
+    }
     mediaRecorderRef.current?.stop()
     mediaRecorderRef.current?.stream.getTracks().forEach(t => t.stop())
     audioContextRef.current?.close()
@@ -174,13 +193,30 @@ export function useVoiceRecorder() {
     chunksRef.current = []
   }, [])
 
+  const pauseRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.pause()
+      setIsPaused(true)
+    }
+  }, [])
+
+  const resumeRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
+      mediaRecorderRef.current.resume()
+      setIsPaused(false)
+    }
+  }, [])
+
   return {
     isRecording,
+    isPaused,
     recordingDuration,
     audioLevel,
     presignedUrlRef,
     startRecording,
     stopRecording,
-    cancelRecording
+    cancelRecording,
+    pauseRecording,
+    resumeRecording
   }
 }

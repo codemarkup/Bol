@@ -11,18 +11,30 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const { fileType, fileExtension, mediaType } = await req.json()
+    const { fileType, fileExtension, mediaType, conversationId } = await req.json()
     
     // Validate allowed file types
-    const allowedTypes = ['audio/webm', 'audio/ogg', 'audio/mp4', 'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'application/pdf']
-    if (!allowedTypes.includes(fileType)) {
-      return NextResponse.json({ error: 'File type not allowed' }, { status: 400 })
+    const isAudio = fileType.startsWith('audio/');
+    const isImage = fileType.startsWith('image/');
+    const isVideo = fileType.startsWith('video/');
+    
+    if (!isAudio && !isImage && !isVideo && fileType !== 'application/pdf') {
+      return NextResponse.json({ error: 'File type not allowed: ' + fileType }, { status: 400 })
     }
 
     // Generate unique file path
     const timestamp = Date.now()
     const randomId = Math.random().toString(36).substring(2, 10)
-    const key = `${mediaType}/${user.id}/${timestamp}_${randomId}.${fileExtension}`
+    
+    let key = `${mediaType}/${user.id}/${timestamp}_${randomId}.${fileExtension}`
+    
+    if (mediaType === 'avatar') {
+      key = `avatars/${user.id}/${timestamp}_${randomId}.${fileExtension}`
+    } else if (mediaType === 'voice') {
+      key = `voice/${user.id}/${timestamp}_${randomId}.${fileExtension}`
+    } else if (conversationId) {
+      key = `chats/${conversationId}/${timestamp}_${randomId}.${fileExtension}`
+    }
 
     // Generate presigned URL valid for 5 minutes
     const command = new PutObjectCommand({

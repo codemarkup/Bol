@@ -20,6 +20,7 @@ export type MessageItem = {
   waveform_data?: number[];
   transcript?: string;
   transcript_status?: string;
+  isDeleted?: boolean;
 };
 
 export function useMessages(conversationId: string | null, currentUserId: string | null) {
@@ -54,6 +55,7 @@ export function useMessages(conversationId: string | null, currentUserId: string
     waveform_data: raw.waveform_data,
     transcript: raw.transcript,
     transcript_status: raw.transcript_status,
+    isDeleted: raw.content === '' && !raw.media_url && raw.type === 'text',
   }), [currentUserId]);
 
   const fetchMessages = useCallback(async () => {
@@ -73,7 +75,7 @@ export function useMessages(conversationId: string | null, currentUserId: string
 
     const { data: msgsData, error } = await supabase
       .from('messages')
-      .select('id, sender_id, content, type, created_at, reply_to_id, reply_to_content, reply_to_sender, media_url, duration_seconds, waveform_data, transcript, transcript_status, message_reactions(emoji, user_id)')
+      .select('id, sender_id, content, type, created_at, reply_to_id, reply_to_content, reply_to_sender, media_url, duration_seconds, waveform_data, transcript, transcript_status, message_reactions(emoji, user_id), deleted_for')
       .eq('conversation_id', conversationId)
       .is('deleted_at', null)
       .order('created_at', { ascending: false })
@@ -82,7 +84,9 @@ export function useMessages(conversationId: string | null, currentUserId: string
     if (error) console.error("Error fetching messages:", error);
     
     // Reverse the messages to display them chronologically (oldest at top, newest at bottom)
-    const msgs = (msgsData || []).reverse();
+    const msgs = (msgsData || [])
+      .filter(m => !m.deleted_for?.includes(currentUserId))
+      .reverse();
 
     const senderIds = Array.from(new Set((msgs || []).map(m => m.sender_id)));
     const { data: profiles } = await supabase
@@ -175,7 +179,7 @@ export function useMessages(conversationId: string | null, currentUserId: string
         let data = null;
         for (let i = 0; i < 3; i++) {
           const res = await supabase.from('messages')
-            .select('id, sender_id, content, type, created_at, reply_to_id, reply_to_content, reply_to_sender, media_url, duration_seconds, waveform_data, transcript, transcript_status, message_reactions(emoji, user_id)')
+            .select('id, sender_id, content, type, created_at, reply_to_id, reply_to_content, reply_to_sender, media_url, duration_seconds, waveform_data, transcript, transcript_status, message_reactions(emoji, user_id), deleted_for')
             .eq('id', payload.new.id).single();
           if (res.data) { data = res.data; break; }
           await new Promise(r => setTimeout(r, 200)); 
@@ -187,7 +191,7 @@ export function useMessages(conversationId: string | null, currentUserId: string
           data.message_reactions = [];
         }
 
-        if (data) {
+        if (data && !data.deleted_for?.includes(currentUserId)) {
           const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', data.sender_id).single();
           const pMap = { [data.sender_id]: profile?.full_name || 'Unknown' };
           
@@ -218,8 +222,19 @@ export function useMessages(conversationId: string | null, currentUserId: string
         event: 'UPDATE', schema: 'public', table: 'messages'
       }, (payload) => {
         setMessages(prev => prev.map(msg => 
-          msg.id === payload.new.id ? { ...msg, transcript: payload.new.transcript || msg.transcript, transcript_status: payload.new.transcript_status || msg.transcript_status } : msg
-        ))
+          msg.id === payload.new.id ? { ...msg, 
+            content: payload.new.content,
+            transcript: payload.new.transcript || msg.transcript, 
+            transcript_status: payload.new.transcript_status || msg.transcript_status,
+            isDeleted: payload.new.content === '' && !payload.new.media_url && payload.new.type === 'text'
+          } : msg
+        ).filter(msg => {
+           // If this message was just updated to include us in deleted_for, remove it
+           if (payload.new.id === msg.id && payload.new.deleted_for?.includes(currentUserId)) {
+             return false;
+           }
+           return true;
+        }));
       })
       .on('postgres_changes', {
         event: 'UPDATE', schema: 'public', table: 'conversation_members',

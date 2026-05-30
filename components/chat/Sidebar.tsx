@@ -3,7 +3,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { MessageSquare, Phone, Users, Sparkles, Clock, Settings } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 const topIcons = [
   { id: "chat", path: "/chat", icon: MessageSquare, label: "Chats" },
@@ -21,6 +21,28 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [profile, setProfile] = useState<{ displayName?: string; avatarUrl?: string | null }>({});
+
+  useEffect(() => {
+    const loadProfile = () => {
+      try {
+        const cached = localStorage.getItem('bol_profile_cache');
+        if (cached) {
+          setProfile(JSON.parse(cached));
+        }
+      } catch (e) {}
+    };
+    
+    loadProfile();
+    
+    // Listen for cross-tab or same-tab updates
+    window.addEventListener('storage', loadProfile);
+    window.addEventListener('bol_profile_updated', loadProfile);
+    return () => {
+      window.removeEventListener('storage', loadProfile);
+      window.removeEventListener('bol_profile_updated', loadProfile);
+    };
+  }, []);
 
   const renderIcon = (item: { id: string; path: string; icon: any; label: string }) => {
     // If the pathname starts with the item's path, or it's the exact path
@@ -108,8 +130,12 @@ export function Sidebar() {
               transition={{ type: "spring", stiffness: 300, damping: 30 }}
             />
           )}
-          <div className={`w-8 h-8 rounded-full bg-[#0D9488] flex items-center justify-center text-white text-xs font-semibold shadow-sm ${pathname?.startsWith('/profile') ? 'ring-2 ring-white ring-offset-2 ring-offset-[#0a0a0a]' : ''}`}>
-            S
+          <div className={`w-8 h-8 rounded-full bg-[#0D9488] flex items-center justify-center text-white text-xs font-semibold shadow-sm overflow-hidden ${pathname?.startsWith('/profile') ? 'ring-2 ring-white ring-offset-2 ring-offset-[#0a0a0a]' : ''}`}>
+            {profile.avatarUrl ? (
+              <img src={profile.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+            ) : (
+              profile.displayName ? profile.displayName.charAt(0).toUpperCase() : 'S'
+            )}
           </div>
         </button>
       </div>

@@ -54,7 +54,7 @@ export function ContextMenu({ contextMenu, onClose, onAction }: ContextMenuProps
       { icon: Timer, label: 'Set Disappear Timer' },
       { icon: Globe, label: 'Translate Message' },
       { divider: true },
-      { icon: Trash2, label: 'Delete Message', danger: true },
+      { icon: Trash2, label: 'Delete Message', danger: true, action: 'delete_message' },
     ],
     chat: [
       { icon: Pin, label: 'Pin Chat' },
