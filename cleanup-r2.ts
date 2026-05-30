@@ -20,20 +20,20 @@ const BUCKET = extract('R2_BUCKET_NAME') || 'bol-media';
 
 async function deletePrefix(prefix: string) {
   try {
-    let continuationToken = undefined;
+    let continuationToken: string | undefined = undefined;
     do {
-      const listCmd = new ListObjectsV2Command({
+      const listCmd: any = new ListObjectsV2Command({
         Bucket: BUCKET,
         Prefix: prefix,
         ContinuationToken: continuationToken
       });
-      const res = await r2Client.send(listCmd);
+      const res: any = await r2Client.send(listCmd);
 
       if (res.Contents && res.Contents.length > 0) {
-        const deleteCmd = new DeleteObjectsCommand({
+        const deleteCmd: any = new DeleteObjectsCommand({
           Bucket: BUCKET,
           Delete: {
-            Objects: res.Contents.map(c => ({ Key: c.Key }))
+            Objects: res.Contents.map((c: any) => ({ Key: c.Key }))
           }
         });
         await r2Client.send(deleteCmd);
