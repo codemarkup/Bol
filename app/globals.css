@@ -9,7 +9,7 @@
   --color-surface: #EEF4F3;
   --color-border: #ECECEC;
   
-  --font-sans: var(--font-inter);
+  --font-sans: var(--font-inter), "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 
 :root {
