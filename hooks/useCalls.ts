@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import AgoraRTC, { IAgoraRTCClient, IMicrophoneAudioTrack, ICameraVideoTrack, IRemoteAudioTrack, IRemoteVideoTrack } from 'agora-rtc-sdk-ng';
+import type { IAgoraRTCClient, IMicrophoneAudioTrack, ICameraVideoTrack, IRemoteAudioTrack, IRemoteVideoTrack } from 'agora-rtc-sdk-ng';
 
 export type CallStatus = 'initiated' | 'ringing' | 'ongoing' | 'ended' | 'missed' | 'rejected' | 'failed';
 export type CallType = 'voice' | 'video';
@@ -227,6 +227,7 @@ export function useCalls(currentUserId: string | null) {
       rtcToken = data.token;
 
       // Join Agora
+      const AgoraRTC = (await import('agora-rtc-sdk-ng')).default;
       const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
       clientRef.current = client;
 
@@ -345,6 +346,7 @@ export function useCalls(currentUserId: string | null) {
       if (data.error) throw new Error(data.error);
       const rtcToken = data.token;
 
+      const AgoraRTC = (await import('agora-rtc-sdk-ng')).default;
       const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
       clientRef.current = client;
 
