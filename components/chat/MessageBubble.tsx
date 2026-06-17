@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { Play, Sparkles, Image as ImageIcon, SmilePlus, Plus } from "lucide-react";
+import { Play, Sparkles, Image as ImageIcon, SmilePlus, Plus, Check, CheckCheck, Clock } from "lucide-react";
 import { ReactNode, useState, useEffect, useRef } from "react";
 import EmojiPicker, { Emoji, EmojiStyle } from 'emoji-picker-react';
 
@@ -131,6 +131,7 @@ type MessageBubbleProps = {
   showSenderName?: boolean;
   reactions?: { emoji: string; count: number }[];
   read?: boolean;
+  status?: 'pending' | 'sent' | 'delivered' | 'read';
   replyTo?: { id: string; content: string; senderName: string } | null;
   onContextMenu?: (e: React.MouseEvent) => void;
   onReact?: (emoji: string) => void;
@@ -144,7 +145,7 @@ type MessageBubbleProps = {
 };
 
 export function MessageBubble(props: MessageBubbleProps) {
-  const { type, isSent, text, time, sender, senderColor, showSenderName, reactions, read, replyTo, onContextMenu, onReact, mediaUrl, durationSeconds, waveformData, transcriptStatus, messageId, onMediaClick, isDeleted } = props;
+  const { type, isSent, text, time, sender, senderColor, showSenderName, reactions, read, status, replyTo, onContextMenu, onReact, mediaUrl, durationSeconds, waveformData, transcriptStatus, messageId, onMediaClick, isDeleted } = props;
   const [showReactionPanel, setShowReactionPanel] = useState(false);
   
   if (isDeleted) {
@@ -237,11 +238,18 @@ export function MessageBubble(props: MessageBubbleProps) {
                 )}
               </motion.div>
             </div>
-            <div className="flex justify-between items-center mt-1 px-1">
+            <div className="flex justify-between items-center mt-1 px-1 gap-1">
               <span className={`text-[10px] ${isSent ? "text-white/50" : "text-[#9CA3AF]"}`}>
                 {time}
-                {isSent && <span className={`ml-1 text-[10px] ${read ? "text-[#00E5FF] drop-shadow-[0_0_2px_rgba(0,229,255,0.4)]" : "text-white/50"}`}>✓✓</span>}
               </span>
+              {isSent && (
+                <span className="flex items-center ml-1">
+                  {status === 'pending' ? <Clock className="w-3 h-3 text-white/50" /> :
+                   (status === 'read' || read) ? <CheckCheck className="w-3 h-3 text-[#00E5FF] drop-shadow-[0_0_2px_rgba(0,229,255,0.4)]" /> :
+                   status === 'delivered' ? <CheckCheck className="w-3 h-3 text-white/50" /> :
+                   <Check className="w-3 h-3 text-white/50" />}
+                </span>
+              )}
             </div>
           </div>
           {reactions && reactions.length > 0 && (
@@ -289,7 +297,14 @@ export function MessageBubble(props: MessageBubbleProps) {
             <p className="text-[14px] leading-relaxed whitespace-pre-wrap flex items-center flex-wrap">{renderTextWithEmojis(text)}</p>
             <div className="flex justify-end items-center gap-1 shrink-0 pb-0.5 opacity-80">
               <span className={`text-[11px] ${isSent ? "text-white" : "text-[#9CA3AF]"}`}>{time}</span>
-              {isSent && <span className={`text-[13px] leading-none ${read ? "text-[#00E5FF] drop-shadow-[0_0_2px_rgba(0,229,255,0.4)]" : "text-white/60"}`}>✓✓</span>}
+              {isSent && (
+                <span className="flex items-center ml-1 shrink-0">
+                  {status === 'pending' ? <Clock className="w-3.5 h-3.5 text-white/60" /> :
+                   (status === 'read' || read) ? <CheckCheck className="w-3.5 h-3.5 text-[#00E5FF] drop-shadow-[0_0_2px_rgba(0,229,255,0.4)]" /> :
+                   status === 'delivered' ? <CheckCheck className="w-3.5 h-3.5 text-white/60" /> :
+                   <Check className="w-3.5 h-3.5 text-white/60" />}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -311,7 +326,7 @@ export function MessageBubble(props: MessageBubbleProps) {
 }
 
 function VoiceBubble(props: MessageBubbleProps) {
-  const { isSent, text, time, sender, senderColor, showSenderName, reactions, read, onContextMenu, onReact, mediaUrl, durationSeconds, waveformData = [], transcriptStatus } = props;
+  const { isSent, text, time, sender, senderColor, showSenderName, reactions, read, status, onContextMenu, onReact, mediaUrl, durationSeconds, waveformData = [], transcriptStatus } = props;
   const [showReactionPanel, setShowReactionPanel] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -439,9 +454,16 @@ function VoiceBubble(props: MessageBubbleProps) {
               </div>
             )}
           </div>
-          <div className="flex justify-end mt-1.5">
+          <div className="flex justify-end items-center mt-1.5 gap-1">
             <span className={`text-[10px] ${isSent ? "text-white/50" : "text-[#9CA3AF]"}`}>{time}</span>
-            {isSent && <span className={`ml-1 text-[10px] ${read ? "text-[#00E5FF] drop-shadow-[0_0_2px_rgba(0,229,255,0.4)]" : "text-white/50"}`}>✓✓</span>}
+            {isSent && (
+              <span className="flex items-center">
+                {status === 'pending' ? <Clock className="w-3 h-3 text-white/50" /> :
+                 (status === 'read' || read) ? <CheckCheck className="w-3 h-3 text-[#00E5FF] drop-shadow-[0_0_2px_rgba(0,229,255,0.4)]" /> :
+                 status === 'delivered' ? <CheckCheck className="w-3 h-3 text-white/50" /> :
+                 <Check className="w-3 h-3 text-white/50" />}
+              </span>
+            )}
           </div>
         </div>
         {reactions && reactions.length > 0 && (

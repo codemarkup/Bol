@@ -6,14 +6,21 @@ import { useState, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChatList } from "@/components/chat/ChatList";
 import { MainChat } from "@/components/chat/MainChat";
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '@/lib/db';
 import { EmptyState } from "@/components/chat/EmptyState";
 import { ContextMenu } from "@/components/chat/ContextMenu";
 import { ResponsiveLayout } from "@/components/layout/ResponsiveLayout";
 import { NewChatModal } from "@/components/chat/NewChatModal";
+import { Phone, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useConversations } from "@/hooks/useConversations";
 import { useMessages } from "@/hooks/useMessages";
 import { usePresence } from "@/hooks/usePresence";
+import { useCalls } from "@/hooks/useCalls";
+import nextDynamic from 'next/dynamic';
+
+const CallOverlays = nextDynamic(() => import('@/components/chat/CallOverlays').then(mod => mod.CallOverlays), { ssr: false });
 
 export default function ChatPage() {
   const supabase = createClient();
@@ -56,6 +63,7 @@ export default function ChatPage() {
   const { conversations, isLoaded, refresh, updateOnlineStatus, markAsRead } = useConversations(currentUser?.id ?? null);
   const { messages, sendMessage, sendTyping, otherUserTyping, toggleReaction } = useMessages(activeChatId, currentUser?.id ?? null);
   const { onlineUsers } = usePresence(currentUser?.id ?? null);
+  const { incomingCall, activeCall, isCalling, callError, localAudioTrack, localVideoTrack, remoteUsers, startCall, acceptCall, rejectCall, endCall } = useCalls(currentUser?.id ?? null);
 
   // Sync online status into conversations list
   useEffect(() => { updateOnlineStatus(onlineUsers); }, [onlineUsers, updateOnlineStatus]);
@@ -106,7 +114,7 @@ export default function ChatPage() {
         .eq('user_id', otherUserId)
         .in('conversation_id', myConvIds);
 
-      if (sharedError) console.error("Error checking shared chats:", sharedError);
+      if (sharedError) { /* ignore */ }
 
       const existing = shared?.find((c: any) => c.conversations?.type === 'direct');
       if (existing) {
@@ -124,8 +132,6 @@ export default function ChatPage() {
       .single();
       
     if (convError || !conv) {
-      console.error("Error creating conversation:", convError);
-      alert("Failed to create chat. Please check console.");
       return;
     }
 
@@ -135,7 +141,7 @@ export default function ChatPage() {
     ]);
     
     if (membersError) {
-      console.error("Error adding members:", membersError);
+      // Ignore silently
     }
 
     await refresh();
@@ -154,7 +160,7 @@ export default function ChatPage() {
     if (!currentUser || !activeChatId) return;
     if (!window.confirm("This will permanently delete the group and all messages for everyone. Are you sure?")) return;
     const { error } = await supabase.from('conversations').delete().eq('id', activeChatId).eq('created_by', currentUser.id);
-    if (error) console.error("Error deleting group:", error);
+    if (error) { /* ignore */ }
     handleCloseChat();
     refresh();
   };
@@ -192,6 +198,7 @@ export default function ChatPage() {
             onCancelReply={() => setReplyTo(null)}
             onLeaveGroup={handleLeaveGroup}
             onDeleteGroup={handleDeleteGroup}
+            onStartCall={(type) => activeConversation && startCall(activeConversation.otherUserId!, activeConversation.id, type)}
           />
         </motion.div>
       ) : (
@@ -203,11 +210,34 @@ export default function ChatPage() {
     </AnimatePresence>
   );
 
+  const warningMessages = useLiveQuery(() => {
+    const cutoff = new Date(Date.now() - 75 * 24 * 60 * 60 * 1000).toISOString();
+    return db.messages.where('created_at').below(cutoff).limit(1).toArray();
+  }, [], []);
+
+  let showWarning = false;
+  let daysUntilDeletion = 0;
+  if (warningMessages && warningMessages.length > 0) {
+    const ageMs = Date.now() - new Date(warningMessages[0].created_at).getTime();
+    const ageDays = ageMs / (1000 * 60 * 60 * 24);
+    if (ageDays >= 75) {
+      showWarning = true;
+      daysUntilDeletion = Math.max(1, 90 - Math.floor(ageDays));
+    }
+  }
+
   return (
-    <div className="w-full h-full" onClick={() => setContextMenu(null)}
+    <div className="w-full h-full flex flex-col relative" onClick={() => setContextMenu(null)}
       onContextMenu={(e) => handleContextMenu(e, 'background')}>
-      <ResponsiveLayout sidebarContent={sidebarContent} mainContent={mainContent}
-        showMainOnMobile={showMainOnMobile} onBackToSidebar={() => setShowMainOnMobile(false)} />
+      {showWarning && (
+        <div className="w-full bg-[#FFFBEB] text-[#B45309] px-4 py-2 text-sm font-medium flex items-center justify-center border-b border-[#FDE68A] z-50 shrink-0">
+          ⚠️ Some messages are older than 75 days and will be automatically deleted from the cloud in {daysUntilDeletion} days. Enable local backups.
+        </div>
+      )}
+      <div className="flex-1 min-h-0">
+        <ResponsiveLayout sidebarContent={sidebarContent} mainContent={mainContent}
+          showMainOnMobile={showMainOnMobile} onBackToSidebar={() => setShowMainOnMobile(false)} />
+      </div>
 
       <AnimatePresence>
         {contextMenu && (
@@ -225,7 +255,7 @@ export default function ChatPage() {
                   conversation_id: activeChatId,
                   message_id: contextMenu.message.id,
                   pinned_by: currentUser?.id
-                }).then(({ error }) => { if (error) console.error(error); });
+                }).then(({ error }) => { if (error) { /* ignore */ } });
               }
               else if (action === 'delete_chat' && contextMenu?.chat && currentUser) {
                 if (window.confirm("Are you sure you want to delete this chat? This cannot be undone.")) {
@@ -302,6 +332,20 @@ export default function ChatPage() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* High-End UI Call Overlays */}
+      <CallOverlays
+        incomingCall={incomingCall}
+        activeCall={activeCall}
+        isCalling={isCalling}
+        localAudioTrack={localAudioTrack}
+        localVideoTrack={localVideoTrack}
+        remoteUsers={remoteUsers}
+        acceptCall={acceptCall}
+        rejectCall={rejectCall}
+        endCall={endCall}
+      />
+
     </div>
   );
 }

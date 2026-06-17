@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { SquarePen, SlidersHorizontal, Search, Sparkles } from "lucide-react";
+import { SquarePen, SlidersHorizontal, Search, Sparkles, CheckCheck } from "lucide-react";
 import { useState } from "react";
 import { ConversationItem } from "@/hooks/useConversations";
 import { renderTextWithEmojis } from "./MessageBubble";
@@ -143,7 +143,16 @@ export function ChatList({
               <div className="relative shrink-0">
                 <div className={`w-[46px] h-[46px] rounded-full flex items-center justify-center font-bold text-[15px] overflow-hidden ${!chat.avatarUrl ? chat.color : 'bg-gray-100'}`}>
                   {chat.avatarUrl ? (
-                    <img src={chat.avatarUrl} alt={chat.name} className="w-full h-full object-cover" />
+                    <img 
+                      src={chat.avatarUrl} 
+                      alt={chat.name} 
+                      className="w-full h-full object-cover" 
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                        e.currentTarget.parentElement!.innerHTML = chat.initials;
+                        e.currentTarget.parentElement!.className = `w-[46px] h-[46px] rounded-full flex items-center justify-center font-bold text-[15px] overflow-hidden ${chat.color}`;
+                      }}
+                    />
                   ) : (
                     chat.initials
                   )}
@@ -166,6 +175,9 @@ export function ChatList({
                       <div className="bg-brand/10 px-1.5 py-0.5 rounded text-[10px] font-bold text-brand flex items-center gap-1 shrink-0">
                         <Sparkles className="w-2.5 h-2.5" /> AI
                       </div>
+                    )}
+                    {chat.lastMessageIsFromMe && (
+                      <CheckCheck className={`w-[14px] h-[14px] shrink-0 mr-1 ${chat.isReadByOther ? 'text-[#00E5FF]' : 'text-[#9CA3AF]'}`} />
                     )}
                     <span className={`text-[13px] truncate ${chat.unread > 0 ? "text-[#0F0F14] font-medium" : "text-[#6B7280]"}`}>
                       {renderTextWithEmojis(chat.message)}

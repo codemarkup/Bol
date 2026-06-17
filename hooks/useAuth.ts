@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { User } from '@supabase/supabase-js'
 import { useRouter } from 'next/navigation'
+import { clearAllCachedData } from '@/lib/db'
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null)
@@ -34,6 +35,7 @@ export function useAuth() {
   }, [router, supabase])
 
   const signOut = async () => {
+    await clearAllCachedData()
     await supabase.auth.signOut()
     router.push('/signin')
   }

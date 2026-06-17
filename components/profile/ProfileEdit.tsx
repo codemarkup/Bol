@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { ImageCropperModal } from "./ImageCropperModal";
 import { getPresignedUrl, uploadToR2 } from "@/lib/uploadToR2";
+import { clearAllCachedData } from "@/lib/db";
+import { getInitials, getColor } from "@/lib/supabase/chat";
 
 interface ProfileEditProps {
   onBack: () => void;
@@ -32,6 +34,10 @@ export function ProfileEdit({ onBack }: ProfileEditProps) {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Compute initials and color
+  const initials = displayName ? getInitials(displayName) : 'S';
+  const avatarColor = displayName ? getColor(displayName) : 'bg-[#0D9488] text-white';
 
   useEffect(() => {
     async function loadData() {
@@ -102,6 +108,7 @@ export function ProfileEdit({ onBack }: ProfileEditProps) {
   };
 
   const handleSignOut = async () => {
+    await clearAllCachedData();
     await supabase.auth.signOut({ scope: 'global' });
     router.push('/signin');
   };
@@ -109,6 +116,7 @@ export function ProfileEdit({ onBack }: ProfileEditProps) {
   const handleDelete = async () => {
     if (window.confirm("Are you sure you want to delete your account? This action cannot be undone.")) {
       await fetch('/api/auth/delete', { method: 'POST' });
+      await clearAllCachedData();
       await supabase.auth.signOut();
       router.push('/signin');
     }
@@ -197,13 +205,22 @@ export function ProfileEdit({ onBack }: ProfileEditProps) {
             <motion.div variants={itemVars} className="flex flex-col items-center sm:flex-row sm:items-start gap-6">
               <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept="image/*" className="hidden" />
               <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-                <div className="w-24 h-24 bg-[#0D9488] text-white rounded-full flex items-center justify-center text-4xl font-bold shadow-sm uppercase overflow-hidden">
+                <div className={`w-24 h-24 rounded-full flex items-center justify-center text-4xl font-bold shadow-sm uppercase overflow-hidden ${avatarColor}`}>
                   {uploadingAvatar ? (
                     <Loader2 className="w-8 h-8 animate-spin text-white" />
                   ) : avatarUrl ? (
-                    <img src={avatarUrl} className="w-full h-full object-cover" alt="Profile" />
+                    <img 
+                      src={avatarUrl} 
+                      className="w-full h-full object-cover" 
+                      alt="Profile" 
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                        e.currentTarget.parentElement!.innerHTML = initials;
+                        e.currentTarget.parentElement!.className = `w-24 h-24 rounded-full flex items-center justify-center text-4xl font-bold shadow-sm uppercase overflow-hidden ${avatarColor}`;
+                      }}
+                    />
                   ) : (
-                    displayName ? displayName.charAt(0) : 'S'
+                    initials
                   )}
                 </div>
                 {!uploadingAvatar && (

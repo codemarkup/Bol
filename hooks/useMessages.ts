@@ -1,7 +1,10 @@
 'use client';
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { aggregateReactions, formatTime } from '@/lib/supabase/chat';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db, LocalMessage } from '@/lib/db';
+import { SyncEngine } from '@/lib/syncEngine';
 
 export type MessageItem = {
   id: string;
@@ -21,312 +24,250 @@ export type MessageItem = {
   transcript?: string;
   transcript_status?: string;
   isDeleted?: boolean;
+  status?: 'pending' | 'sent' | 'delivered' | 'read';
 };
 
 export function useMessages(conversationId: string | null, currentUserId: string | null) {
-  const [messages, setMessages] = useState<MessageItem[]>(() => {
-    if (typeof window !== 'undefined' && conversationId) {
-      const cached = localStorage.getItem(`bol_messages_cache_${conversationId}`);
-      if (cached) {
-        try { return JSON.parse(cached); } catch(e) {}
-      }
-    }
-    return [];
-  });
-  const [otherUserTyping, setOtherUserTyping] = useState<string | null>(null);
-  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const channelRef = useRef<any>(null);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
-  const formatMessage = useCallback((raw: any, profileMap: Record<string, string>, otherLastRead: number): MessageItem => ({
-    id: raw.id,
-    sender_id: raw.sender_id,
-    content: raw.content || '',
-    type: raw.type || 'text',
-    time: formatTime(raw.created_at),
-    isSent: raw.sender_id === currentUserId,
-    senderName: profileMap[raw.sender_id] || 'Unknown',
-    reactions: aggregateReactions(raw.message_reactions || []),
-    read: new Date(raw.created_at).getTime() <= otherLastRead,
-    rawTime: raw.created_at,
-    replyTo: raw.reply_to_content ? { id: raw.reply_to_id || '', content: raw.reply_to_content, senderName: raw.reply_to_sender || 'Unknown' } : null,
-    media_url: raw.media_url,
-    duration_seconds: raw.duration_seconds,
-    waveform_data: raw.waveform_data,
-    transcript: raw.transcript,
-    transcript_status: raw.transcript_status,
-    isDeleted: raw.content === '' && !raw.media_url && raw.type === 'text',
-  }), [currentUserId]);
 
-  const fetchMessages = useCallback(async () => {
-    if (!conversationId) return;
+  const localMessages = useLiveQuery(
+    () => {
+      if (!conversationId) return [];
+      return db.messages
+        .where('conversation_id')
+        .equals(conversationId)
+        .sortBy('created_at');
+    },
+    [conversationId],
+    []
+  );
 
-    // 1. Fetch other user's last_read_at for initial read receipts
-    const { data: members } = await supabase
-      .from('conversation_members')
-      .select('last_read_at')
-      .eq('conversation_id', conversationId)
-      .neq('user_id', currentUserId);
-      
-    let otherLastRead = 0;
-    if (members && members.length > 0) {
-      otherLastRead = Math.max(...members.map(m => new Date(m.last_read_at || 0).getTime()));
-    }
+  const messages: MessageItem[] = (localMessages || [])
+    .filter(m => !m.deleted_for?.includes(currentUserId || ''))
+    .map(raw => {
+      return {
+        id: raw.id,
+        sender_id: raw.sender_id,
+        content: raw.content || '',
+        type: raw.type || 'text',
+        time: formatTime(raw.created_at),
+        isSent: raw.sender_id === currentUserId,
+        senderName: raw.sender_name || 'Unknown',
+        reactions: aggregateReactions(raw.message_reactions || []),
+        read: raw.read_status || false,
+        rawTime: raw.created_at,
+        replyTo: raw.reply_to_id ? {
+          id: raw.reply_to_id,
+          content: raw.reply_to_content || '',
+          senderName: raw.reply_to_sender || 'Unknown'
+        } : null,
+        media_url: raw.media_url || undefined,
+        duration_seconds: raw.duration_seconds || undefined,
+        waveform_data: raw.waveform_data || undefined,
+        transcript: raw.transcript || undefined,
+        transcript_status: raw.transcript_status || undefined,
+        isDeleted: raw.deleted_at !== null || raw.content === '' && !raw.media_url && raw.type === 'text',
+        status: raw.read_status ? 'read' : 
+                raw.delivery_status ? 'delivered' : 
+                (raw.status === 'pending' ? 'pending' : 'sent')
+      };
+    });
 
-    const { data: msgsData, error } = await supabase
-      .from('messages')
-      .select('id, sender_id, content, type, created_at, reply_to_id, reply_to_content, reply_to_sender, media_url, duration_seconds, waveform_data, transcript, transcript_status, message_reactions(emoji, user_id), deleted_for')
-      .eq('conversation_id', conversationId)
-      .is('deleted_at', null)
-      .order('created_at', { ascending: false })
-      .limit(50);
-      
-    if (error) console.error("Error fetching messages:", error);
+  const fetchReceiptStatus = useCallback(async () => {
+    if (!conversationId || !currentUserId) return;
     
-    // Reverse the messages to display them chronologically (oldest at top, newest at bottom)
-    const msgs = (msgsData || [])
-      .filter(m => !m.deleted_for?.includes(currentUserId))
-      .reverse();
+    // We only need to check messages we sent
+    const msgs = await db.messages.where('conversation_id').equals(conversationId).toArray();
+    const myMsgIds = msgs.filter(m => m.sender_id === currentUserId).map(m => m.id);
+    if (myMsgIds.length === 0) return;
 
-    const senderIds = Array.from(new Set((msgs || []).map(m => m.sender_id)));
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, full_name')
-      .in('id', senderIds);
-      
-    const profileMap: Record<string, string> = {};
-    profiles?.forEach(p => { profileMap[p.id] = p.full_name; });
+    const { data: deliveredData } = await supabase
+      .from('message_delivery_receipts')
+      .select('message_id')
+      .in('message_id', myMsgIds)
+      .neq('user_id', currentUserId);
 
-    const formatted = (msgs || []).map(m => formatMessage(m, profileMap, otherLastRead));
-    setMessages(formatted);
-    if (conversationId) {
-      localStorage.setItem(`bol_messages_cache_${conversationId}`, JSON.stringify(formatted));
-    }
+    const { data: readData } = await supabase
+      .from('message_read_receipts')
+      .select('message_id')
+      .in('message_id', myMsgIds)
+      .neq('user_id', currentUserId);
 
-    // Mark as read
-    if (currentUserId) {
-      // Broadcast read receipt instantly to the sender
-      if (channelRef.current) {
-        channelRef.current.send({
-          type: 'broadcast', event: 'read_receipt',
-          payload: { user_id: currentUserId, time: Date.now() }
-        });
-      }
+    const deliveredIds = new Set(deliveredData?.map(d => d.message_id) || []);
+    const readIds = new Set(readData?.map(d => d.message_id) || []);
 
-      supabase
-        .from('conversation_members')
-        .update({ last_read_at: new Date().toISOString() })
-        .eq('conversation_id', conversationId)
-        .eq('user_id', currentUserId).then();
-    }
-  }, [conversationId, currentUserId, supabase, formatMessage]);
-
-  useEffect(() => {
-    if (conversationId) {
-      // Show cached messages instantly while fetching fresh ones
-      const cached = localStorage.getItem(`bol_messages_cache_${conversationId}`);
-      if (cached) {
-        try { setMessages(JSON.parse(cached)); } catch(e) { setMessages([]); }
-      } else {
-        setMessages([]);
-      }
-    } else {
-      setMessages([]);
-    }
-    setOtherUserTyping(null);
-    fetchMessages();
-  }, [conversationId, fetchMessages]);
-
-  // Realtime subscription for new messages + typing + read receipts
-  useEffect(() => {
-    if (!conversationId) return;
-    if (channelRef.current) supabase.removeChannel(channelRef.current);
-
-    const channel = supabase.channel(`messages:${conversationId}`)
-      .on('broadcast', { event: '*' }, (payload) => {
-         console.log("DEBUG BROADCAST:", payload);
-      })
-      .on('broadcast', { event: 'new_message' }, async (eventData) => {
-        const payload = eventData.payload || eventData;
-        if (!payload || !payload.message) return;
-        const msg = payload.message as MessageItem;
-        if (msg.sender_id !== currentUserId) {
-          // Instant WhatsApp-style P2P message delivery
-          setMessages(prev => {
-            if (prev.some(m => m.id === msg.id)) return prev;
-            return [...prev, { ...msg, isSent: false, read: true }]; // We just read it instantly
-          });
-          
-          if (currentUserId) {
-            // Broadcast instantly before DB
-            channel.send({
-              type: 'broadcast', event: 'read_receipt',
-              payload: { user_id: currentUserId, time: Date.now() }
-            });
-
-            // Update read receipts
-            supabase.from('conversation_members')
-              .update({ last_read_at: new Date().toISOString() })
-              .eq('conversation_id', conversationId)
-              .eq('user_id', currentUserId).then();
+    // RE-FETCH msgs inside a transaction to prevent race conditions with syncEngine
+    await db.transaction('rw', db.messages, async () => {
+      const currentMsgs = await db.messages.where('conversation_id').equals(conversationId).toArray();
+      const updates = [];
+      for (const m of currentMsgs) {
+        if (m.sender_id === currentUserId) {
+          const isDelivered = deliveredIds.has(m.id) || !!m.delivery_status;
+          const isRead = readIds.has(m.id) || !!m.read_status;
+          if (m.delivery_status !== isDelivered || m.read_status !== isRead) {
+            updates.push({ ...m, delivery_status: isDelivered, read_status: isRead });
           }
         }
-      })
-      .on('postgres_changes', {
-        event: 'INSERT', schema: 'public', table: 'messages',
-        filter: `conversation_id=eq.${conversationId}`
-      }, async (payload) => {
-        let data = null;
-        for (let i = 0; i < 3; i++) {
-          const res = await supabase.from('messages')
-            .select('id, sender_id, content, type, created_at, reply_to_id, reply_to_content, reply_to_sender, media_url, duration_seconds, waveform_data, transcript, transcript_status, message_reactions(emoji, user_id), deleted_for')
-            .eq('id', payload.new.id).single();
-          if (res.data) { data = res.data; break; }
-          await new Promise(r => setTimeout(r, 200)); 
-        }
+      }
+      if (updates.length > 0) {
+        await db.messages.bulkPut(updates);
+      }
+    });
+  }, [conversationId, currentUserId, supabase]);
 
-        // Bulletproof fallback: use raw payload if DB query completely failed due to lag
-        if (!data && payload.new) {
-          data = payload.new;
-          data.message_reactions = [];
-        }
+  useEffect(() => {
+    if (!conversationId || !currentUserId) return;
 
-        if (data && !data.deleted_for?.includes(currentUserId)) {
-          const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', data.sender_id).single();
-          const pMap = { [data.sender_id]: profile?.full_name || 'Unknown' };
-          
-          setMessages(prev => {
-            if (prev.some(m => m.id === data.id)) return prev;
-            
-            // If the message is from us, it starts unread by the other person (otherLastRead = 0).
-            // If the message is from them, we read it instantly because our chat is open (otherLastRead = Date.now()).
-            const isFromMe = data.sender_id === currentUserId;
-            return [...prev, formatMessage(data, pMap, isFromMe ? 0 : Date.now())]; 
-          });
-          
-          if (data.sender_id !== currentUserId && currentUserId) {
-            // Broadcast instantly
-            channel.send({
-              type: 'broadcast', event: 'read_receipt',
-              payload: { user_id: currentUserId, time: Date.now() }
-            });
+    // Fetch initial receipt statuses
+    fetchReceiptStatus();
 
-            supabase.from('conversation_members')
-              .update({ last_read_at: new Date().toISOString() })
-              .eq('conversation_id', conversationId)
-              .eq('user_id', currentUserId).then();
-          }
-        }
-      })
-      .on('postgres_changes', {
-        event: 'UPDATE', schema: 'public', table: 'messages'
-      }, (payload) => {
-        setMessages(prev => prev.map(msg => 
-          msg.id === payload.new.id ? { ...msg, 
-            content: payload.new.content,
-            transcript: payload.new.transcript || msg.transcript, 
-            transcript_status: payload.new.transcript_status || msg.transcript_status,
-            isDeleted: payload.new.content === '' && !payload.new.media_url && payload.new.type === 'text'
-          } : msg
-        ).filter(msg => {
-           // If this message was just updated to include us in deleted_for, remove it
-           if (payload.new.id === msg.id && payload.new.deleted_for?.includes(currentUserId)) {
-             return false;
-           }
-           return true;
-        }));
-      })
-      .on('postgres_changes', {
-        event: 'UPDATE', schema: 'public', table: 'conversation_members',
-        filter: `conversation_id=eq.${conversationId}`
-      }, (payload) => {
-        if (payload.new.user_id !== currentUserId && payload.new.last_read_at) {
-          // Add 5 minutes tolerance to account for client clock drift
-          const newReadTime = new Date(payload.new.last_read_at).getTime() + 300000;
-          setMessages(prev => prev.map(m => {
-             if (m.isSent && !m.read && m.rawTime && new Date(m.rawTime).getTime() <= newReadTime) {
-                return { ...m, read: true };
-             }
-             return m;
-          }));
-        }
-      })
-      .on('broadcast', { event: 'read_receipt' }, (eventData) => {
-        const payload = eventData.payload || eventData;
-        // WhatsApp-style instant P2P read receipt
-        if (payload && payload.user_id !== currentUserId) {
-          // If they sent a read receipt right now, they have read everything we sent up to now.
-          // No time comparison needed, which completely bypasses clock drift issues.
-          setMessages(prev => prev.map(m => {
-             if (m.isSent && !m.read) {
-                return { ...m, read: true };
-             }
-             return m;
-          }));
-        }
-      })
-      .on('broadcast', { event: 'typing' }, (eventData) => {
-        const rawPayload = eventData.payload || eventData;
-        // Handle potential nested payload from Flutter SDK
-        const actualPayload = rawPayload.payload ? rawPayload.payload : rawPayload;
-        
-        if (actualPayload && actualPayload.user_id && actualPayload.user_id !== currentUserId) {
-          setOtherUserTyping(actualPayload.display_name || 'Someone');
-          if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-          typingTimeoutRef.current = setTimeout(() => setOtherUserTyping(null), 3000);
-        }
-      })
-      .on('broadcast', { event: 'reaction' }, (eventData) => {
-        const payload = eventData.payload || eventData;
-        if (!payload) return;
-        setMessages(prev => prev.map(m => {
-          if (m.id !== payload.message_id) return m;
-          let newReactions = [...m.reactions];
-          const rIndex = newReactions.findIndex(r => r.emoji === payload.emoji);
-          
-          if (payload.is_adding) {
-            if (rIndex > -1) newReactions[rIndex].count += 1;
-            else newReactions.push({ emoji: payload.emoji, count: 1 });
-          } else {
-            if (rIndex > -1) {
-              newReactions[rIndex].count -= 1;
-              if (newReactions[rIndex].count <= 0) newReactions.splice(rIndex, 1);
+    // Mark all as read when opening chat
+    supabase.rpc('mark_messages_read', { p_user_id: currentUserId, p_conversation_id: conversationId }).then(() => {
+      // Broadcast check_status to the OTHER user
+      db.conversations.get(conversationId).then(conv => {
+        if (conv?.other_user_id) {
+          const pingCh = supabase.channel(`call:${conv.other_user_id}`, { config: { broadcast: { ack: true } } });
+          pingCh.subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              pingCh.send({ type: 'broadcast', event: 'check_status', payload: {} }).catch(() => {});
+              setTimeout(() => supabase.removeChannel(pingCh), 1000);
             }
-          }
-          return { ...m, reactions: newReactions };
-        }));
+          });
+        }
+      });
+    });
+
+    // 10 second interval for fetching receipts as safety net
+    const intervalId = setInterval(fetchReceiptStatus, 10000);
+
+    // Listen to personal channel for instant ping updates while chat is open
+    const pingChannel = supabase.channel(`call:${currentUserId}`)
+      .on('broadcast', { event: 'check_status' }, () => {
+        fetchReceiptStatus();
       })
       .subscribe();
 
-    channelRef.current = channel;
-    return () => { if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; } };
-  }, [conversationId, currentUserId, supabase, formatMessage]);
+    // Trigger sync engine in background
+    SyncEngine.syncMessages(conversationId, currentUserId).catch(console.error);
+    
+    return () => {
+      clearInterval(intervalId);
+      supabase.removeChannel(pingChannel);
+    };
+  }, [conversationId, currentUserId, supabase, fetchReceiptStatus]);
+
+  const [otherUserTyping, setOtherUserTyping] = useState<string | null>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Realtime subscription for new messages + typing + read receipts (Adaptive + Signal-Pull)
+  useEffect(() => {
+    if (!conversationId || !currentUserId) return;
+
+    const setupChannel = () => {
+      if (channelRef.current) supabase.removeChannel(channelRef.current);
+
+      const channel = supabase.channel(`messages:${conversationId}`)
+        .on('broadcast', { event: 'new_message_signal' }, () => {
+          // New message arrived while we have the chat open, mark as read and tell sender to check status
+          supabase.rpc('mark_messages_read', { p_user_id: currentUserId, p_conversation_id: conversationId }).then(() => {
+            db.conversations.get(conversationId).then(conv => {
+              if (conv?.other_user_id) {
+                const pingCh = supabase.channel(`call:${conv.other_user_id}`, { config: { broadcast: { ack: true } } });
+                pingCh.subscribe((status) => {
+                  if (status === 'SUBSCRIBED') {
+                    pingCh.send({ type: 'broadcast', event: 'check_status', payload: {} }).catch(() => {});
+                    setTimeout(() => supabase.removeChannel(pingCh), 1000);
+                  }
+                });
+              }
+            });
+          });
+          SyncEngine.syncMessages(conversationId, currentUserId).catch(console.error);
+        })
+        .on('broadcast', { event: 'typing' }, (eventData) => {
+          const rawPayload = eventData.payload || eventData;
+          const actualPayload = rawPayload.payload ? rawPayload.payload : rawPayload;
+          
+          if (actualPayload && actualPayload.user_id && actualPayload.user_id !== currentUserId) {
+            setOtherUserTyping(actualPayload.display_name || 'Someone');
+            if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+            typingTimeoutRef.current = setTimeout(() => setOtherUserTyping(null), 3000);
+          }
+        })
+        .on('broadcast', { event: 'reaction' }, async (eventData) => {
+          const payload = eventData.payload || eventData;
+          if (!payload) return;
+          
+          const m = await db.messages.get(payload.message_id);
+          if (m) {
+            let newReactions = [...(m.message_reactions || [])];
+            const rIndex = newReactions.findIndex(r => r.emoji === payload.emoji && r.user_id === payload.user_id);
+            
+            if (payload.is_adding && rIndex === -1) {
+              newReactions.push({ emoji: payload.emoji, user_id: payload.user_id });
+            } else if (!payload.is_adding && rIndex > -1) {
+              newReactions.splice(rIndex, 1);
+            }
+            await db.messages.update(m.id, { message_reactions: newReactions });
+          }
+        })
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            channelRef.current = channel;
+            // Trigger backfill immediately on successful connect/reconnect
+            SyncEngine.syncMessages(conversationId, currentUserId).catch(console.error);
+          } else if (status === 'CHANNEL_ERROR') {
+            console.error("CHANNEL_ERROR: Reconnecting...");
+            setTimeout(() => {
+              if (!document.hidden) setupChannel();
+            }, 3000);
+          }
+        });
+
+      channelRef.current = channel;
+    };
+
+    let timeoutId = setTimeout(() => {
+      setupChannel();
+    }, 250);
+
+    return () => { 
+      clearTimeout(timeoutId);
+      if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; } 
+    };
+  }, [conversationId, currentUserId, supabase]);
 
   const sendMessage = useCallback(async (content: string, replyTo?: { id: string; content: string; senderName: string }): Promise<boolean> => {
     if (!conversationId || !currentUserId || !content.trim()) return false;
     
     // Generate UUID locally so we don't have duplicate keys when Realtime fires
     const messageId = crypto.randomUUID();
+    const clientOpId = crypto.randomUUID();
     const nowISO = new Date().toISOString();
     
     // OPTIMISTIC UPDATE: Instantly show message like WhatsApp
-    const newMsg: MessageItem = {
+    const newMsg: LocalMessage = {
       id: messageId,
+      conversation_id: conversationId,
       sender_id: currentUserId,
       content: content.trim(),
       type: 'text',
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      isSent: true,
-      senderName: 'Me',
-      reactions: [],
-      read: false,
-      rawTime: nowISO,
-      replyTo: replyTo ?? null,
+      created_at: nowISO,
+      sender_name: 'Me', // Will be correct on UI side via isSent check
+      reply_to_id: replyTo?.id ?? null,
+      reply_to_content: replyTo?.content ?? null,
+      reply_to_sender: replyTo?.senderName ?? null,
+      message_reactions: [],
+      client_operation_id: clientOpId,
+      status: 'pending',
     };
     
-    setMessages(prev => [...prev, newMsg]);
+    await db.messages.put(newMsg);
+    await db.conversations.update(conversationId, { updated_at: nowISO });
 
-    const { error } = await supabase.from('messages').insert({
+    const { data, error } = await supabase.from('messages').insert({
       id: messageId,
       conversation_id: conversationId,
       sender_id: currentUserId,
@@ -336,22 +277,30 @@ export function useMessages(conversationId: string | null, currentUserId: string
       reply_to_id: replyTo?.id ?? null,
       reply_to_content: replyTo?.content ?? null,
       reply_to_sender: replyTo?.senderName ?? null,
-    });
+      client_operation_id: clientOpId,
+    }).select('created_at').single();
     
-    // Broadcast the full message instantly to the receiver!
+    if (data?.created_at) {
+      await db.messages.update(messageId, { created_at: data.created_at });
+    }
+    
+    // Broadcast lightweight signal to trigger pull on receivers
     if (channelRef.current) {
       channelRef.current.send({
-        type: 'broadcast', event: 'new_message',
-        payload: { message: newMsg }
+        type: 'broadcast', event: 'new_message_signal',
+        payload: { conversation_id: conversationId, new_event: true, message_time: nowISO }
       });
     }
     
     if (error) {
       console.error("Failed to send:", error);
       // Revert if failed
-      setMessages(prev => prev.filter(m => m.id !== messageId));
+      await db.messages.delete(messageId);
       return false;
     }
+
+    // Mark as sent in local DB
+    await db.messages.update(messageId, { status: 'sent' });
 
     return true;
   }, [conversationId, currentUserId, supabase]);
@@ -377,27 +326,23 @@ export function useMessages(conversationId: string | null, currentUserId: string
     const isAdding = !existing;
 
     // Optimistic UI update
-    setMessages(prev => prev.map(m => {
-      if (m.id !== messageId) return m;
-      let newReactions = [...m.reactions];
-      const rIndex = newReactions.findIndex(r => r.emoji === emoji);
+    const m = await db.messages.get(messageId);
+    if (m) {
+      let newReactions = [...(m.message_reactions || [])];
+      const rIndex = newReactions.findIndex(r => r.emoji === emoji && r.user_id === currentUserId);
       
-      if (isAdding) {
-        if (rIndex > -1) newReactions[rIndex].count += 1;
-        else newReactions.push({ emoji, count: 1 });
-      } else {
-        if (rIndex > -1) {
-          newReactions[rIndex].count -= 1;
-          if (newReactions[rIndex].count <= 0) newReactions.splice(rIndex, 1);
-        }
+      if (isAdding && rIndex === -1) {
+        newReactions.push({ emoji, user_id: currentUserId });
+      } else if (!isAdding && rIndex > -1) {
+        newReactions.splice(rIndex, 1);
       }
-      return { ...m, reactions: newReactions };
-    }));
+      await db.messages.update(messageId, { message_reactions: newReactions });
+    }
 
     // Broadcast
     channelRef.current?.send({
       type: 'broadcast', event: 'reaction',
-      payload: { message_id: messageId, emoji, is_adding: isAdding }
+      payload: { message_id: messageId, emoji, is_adding: isAdding, user_id: currentUserId }
     });
 
     // Database

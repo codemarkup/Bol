@@ -27,6 +27,29 @@ export function formatTime(isoString: string): string {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+export function formatSidebarTime(isoString: string): string {
+  const date = new Date(isoString);
+  const now = new Date();
+  
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const oneWeekAgo = new Date(today);
+  oneWeekAgo.setDate(oneWeekAgo.getDate() - 6);
+
+  const targetDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+  if (targetDate.getTime() === today.getTime()) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } else if (targetDate.getTime() === yesterday.getTime()) {
+    return 'Yesterday';
+  } else if (targetDate.getTime() >= oneWeekAgo.getTime()) {
+    return date.toLocaleDateString([], { weekday: 'long' });
+  } else {
+    return date.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: 'numeric' });
+  }
+}
+
 export function formatDateHeading(isoString: string): string {
   const date = new Date(isoString);
   const now = new Date();

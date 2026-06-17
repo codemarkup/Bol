@@ -2,7 +2,7 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import { Phone, Video, Search, MoreVertical, Plus, Smile, Mic, Send, Sparkles, X, ArrowLeft, Pin } from "lucide-react";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { MessageBubble } from "./MessageBubble";
 import { GroupInfoPanel } from "./GroupInfoPanel";
 import { Users, Shield } from "lucide-react";
@@ -36,6 +36,7 @@ export function MainChat({
   onCancelReply,
   onLeaveGroup,
   onDeleteGroup,
+  onStartCall,
 }: { 
   conversation?: ConversationItem;
   messages: MessageItem[];
@@ -53,6 +54,7 @@ export function MainChat({
   onCancelReply?: () => void;
   onLeaveGroup?: () => void;
   onDeleteGroup?: () => void;
+  onStartCall?: (type: 'voice' | 'video') => void;
 }) {
   const [inputValue, setInputValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -231,17 +233,18 @@ export function MainChat({
   const isInitialLoadRef = useRef(true);
   const prevConvIdRef = useRef<string | null>(null);
 
-  // Auto-scroll to bottom on new messages
-  useEffect(() => {
-    if (prevConvIdRef.current !== conversation?.id) {
-      isInitialLoadRef.current = true;
-      prevConvIdRef.current = conversation?.id || null;
-    }
-    
+  // Sync ref during render to ensure accurate state for framer-motion optimization
+  if (prevConvIdRef.current !== conversation?.id) {
+    isInitialLoadRef.current = true;
+    prevConvIdRef.current = conversation?.id || null;
+  }
+
+  // Auto-scroll to bottom on new messages (useLayoutEffect prevents flicker)
+  useLayoutEffect(() => {
     if (!bottomRef.current) return;
 
     if (isInitialLoadRef.current && messages.length > 0) {
-      // Initial load with data: snap instantly
+      // Initial load with data: snap instantly before paint
       bottomRef.current.scrollIntoView({ behavior: "auto" });
       isInitialLoadRef.current = false;
     } else if (!isInitialLoadRef.current) {
@@ -250,10 +253,13 @@ export function MainChat({
     }
   }, [messages, otherUserTyping, conversation?.id]);
 
-  // Auto-focus input when replyTo is set
+  // Auto-focus input when replyTo or conversation changes
   useEffect(() => {
-    if (replyTo) inputRef.current?.focus();
-  }, [replyTo]);
+    if (replyTo || conversation?.id) {
+      // Small timeout ensures the input is fully rendered and not blocked by transition
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  }, [replyTo, conversation?.id]);
 
   const handleSend = useCallback(async () => {
     const text = inputValue.trim();
@@ -321,8 +327,21 @@ export function MainChat({
             )}
 
             <div className="relative">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${conversation?.color || 'bg-blue-100 text-blue-700'}`}>
-                {conversation?.initials || '?'}
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm overflow-hidden ${!conversation?.avatarUrl ? (conversation?.color || 'bg-blue-100 text-blue-700') : 'bg-gray-100'}`}>
+                {conversation?.avatarUrl ? (
+                  <img 
+                    src={conversation.avatarUrl} 
+                    alt={conversation.name} 
+                    className="w-full h-full object-cover" 
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                      e.currentTarget.parentElement!.innerHTML = conversation?.initials || '?';
+                      e.currentTarget.parentElement!.className = `w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm overflow-hidden ${conversation?.color || 'bg-blue-100 text-blue-700'}`;
+                    }}
+                  />
+                ) : (
+                  conversation?.initials || '?'
+                )}
               </div>
               {!isGroup && isOnline && (
                 <div className="absolute bottom-0 right-0 w-3 h-3 bg-[#22C55E] rounded-full border-2 border-white"></div>
@@ -355,9 +374,9 @@ export function MainChat({
                 <Users className="w-5 h-5" strokeWidth={1.5} />
               </button>
             ) : (
-              <IconButton icon={<Phone />} />
+              <IconButton icon={<Phone />} onClick={() => onStartCall?.('voice')} />
             )}
-            <IconButton icon={<Video />} />
+            <IconButton icon={<Video />} onClick={() => onStartCall?.('video')} />
             <IconButton icon={<Search />} />
             <IconButton icon={<MoreVertical />} />
             
@@ -423,7 +442,13 @@ export function MainChat({
                 )}
                 
                 {msg.type === 'system' ? (
-                  <motion.div key={msg.id} layout="position" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center justify-center my-4">
+                  <motion.div 
+                    key={msg.id} 
+                    layout={isInitialLoadRef.current ? false : "position"} 
+                    initial={isInitialLoadRef.current ? false : { opacity: 0 }} 
+                    animate={{ opacity: 1 }} 
+                    className="flex items-center justify-center my-4"
+                  >
                     <div className="bg-[#F6F8F7] px-4 py-1.5 rounded-full text-[12px] font-medium text-[#6B7280]">
                       {msg.content}
                     </div>
@@ -431,8 +456,8 @@ export function MainChat({
                 ) : (
                   <motion.div
                     key={msg.id}
-                    layout="position"
-                    initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                    layout={isInitialLoadRef.current ? false : "position"}
+                    initial={isInitialLoadRef.current ? false : { opacity: 0, scale: 0.95, y: 10 }}
                     animate={{ opacity: 1, scale: 1, y: 0 }}
                     transition={{ duration: 0.2, ease: "easeOut" }}
                     className="mb-5 origin-bottom"
@@ -447,6 +472,7 @@ export function MainChat({
                       showSenderName={isGroup && !msg.isSent}
                       reactions={msg.reactions}
                       read={msg.read}
+                      status={msg.status}
                       replyTo={msg.replyTo}
                       onContextMenu={(e) => onContextMenu?.(e, 'message', msg)}
                       onReact={(emoji) => onReact?.(msg.id, emoji)}
@@ -620,9 +646,9 @@ export function MainChat({
   );
 }
 
-function IconButton({ icon }: { icon: React.ReactNode }) {
+function IconButton({ icon, onClick }: { icon: React.ReactNode, onClick?: () => void }) {
   return (
-    <button className="w-10 h-10 rounded-full flex items-center justify-center text-[#6B7280] hover:text-brand hover:bg-[#F6F8F7] transition-all">
+    <button onClick={onClick} className="w-10 h-10 rounded-full flex items-center justify-center text-[#6B7280] hover:text-brand hover:bg-[#F6F8F7] transition-all">
       <div className="w-5 h-5 [&>svg]:w-full [&>svg]:h-full [&>svg]:stroke-[1.5px]">
         {icon}
       </div>
