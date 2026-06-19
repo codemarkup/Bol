@@ -5,13 +5,18 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, Play, Pause, Eye, Smile, Send } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Pulse } from "./PulseFeed";
+import { Emoji, EmojiStyle } from 'emoji-picker-react';
+
+const toUnified = (emoji: string) => [...emoji].map(c => c.codePointAt(0)?.toString(16)).join('-');
 
 interface PulseViewerProps {
   userId: string;
   currentUserId: string | null;
+  startIndex?: number;
   onBack: () => void;
   onClose: () => void;
   onNextUser: (nextUserId: string) => void;
+  onPulseViewed?: (poster_id: string) => void;
 }
 
 const EMOJI_REACTIONS = ['❤️', '😂', '😮', '🙏', '👍'];
@@ -26,9 +31,9 @@ function formatTimeAgo(dateStr: string) {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser }: PulseViewerProps) {
+export function PulseViewer({ userId, currentUserId, startIndex = 0, onBack, onClose, onNextUser, onPulseViewed }: PulseViewerProps) {
   const [pulses, setPulses] = useState<Pulse[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentIndex, setCurrentIndex] = useState(startIndex);
   const [isPaused, setIsPaused] = useState(false);
   const [progress, setProgress] = useState(0);
   const [isMediaLoaded, setIsMediaLoaded] = useState(false);
@@ -36,13 +41,13 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
   const [replyText, setReplyText] = useState("");
   const [isSubmittingReply, setIsSubmittingReply] = useState(false);
   const [floatingEmojis, setFloatingEmojis] = useState<{ id: number, emoji: string, x: number }[]>([]);
-  
+
   const [showViewersList, setShowViewersList] = useState(false);
   const [viewers, setViewers] = useState<any[]>([]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
-  
+
   const currentPulse = pulses[currentIndex];
   const isOwner = currentUserId === userId;
 
@@ -50,15 +55,15 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
     if (!currentPulse) return;
     setIsPaused(true);
     setShowViewersList(true);
-    
+
     const supabase = createClient();
     const { data: views } = await supabase.from('pulse_views').select('viewer_id, viewed_at').eq('pulse_id', currentPulse.id).order('viewed_at', { ascending: false });
-    
+
     if (views && views.length > 0) {
       const viewerIds = views.map(v => v.viewer_id);
       const { data: profiles } = await supabase.from('profiles').select('id, full_name, avatar_url').in('id', viewerIds);
       const profileMap = new Map(profiles?.map(p => [p.id, p]));
-      
+
       const viewersData = views.map(v => ({
         id: v.viewer_id,
         viewed_at: v.viewed_at,
@@ -80,11 +85,11 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
         .eq('user_id', userId)
         .gt('expires_at', new Date().toISOString())
         .order('created_at', { ascending: true }); // Oldest first for chronological viewing
-        
+
       if (data && data.length > 0) {
         // Fetch profile
         const { data: profile } = await supabase.from('profiles').select('full_name, avatar_url').eq('id', userId).single();
-        
+
         const pulseIds = data.map(p => p.id);
         const { data: viewsData } = await supabase.from('pulse_views').select('pulse_id').in('pulse_id', pulseIds);
         const viewCounts = new Map<string, number>();
@@ -97,34 +102,46 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
           view_count: viewCounts.get(p.id) || 0,
           profiles: profile || { full_name: 'Unknown', avatar_url: '' }
         }));
-        // Fetch viewed pulses by current user to determine starting index
-        let firstUnviewedIndex = 0;
-        if (currentUserId && currentUserId !== userId) {
-          const { data: views } = await supabase.from('pulse_views').select('pulse_id').eq('viewer_id', currentUserId);
-          const viewedIds = new Set(views?.map(v => v.pulse_id) || []);
-          firstUnviewedIndex = pulsesWithProfiles.findIndex(p => !viewedIds.has(p.id));
-        }
-        
+        // We don't fetch viewed IDs here anymore, we rely on the startIndex passed from PulseFeed!
         setPulses(pulsesWithProfiles as any);
-        setCurrentIndex(firstUnviewedIndex !== -1 ? firstUnviewedIndex : 0);
+        setCurrentIndex(startIndex);
       } else {
         onClose(); // No pulses found or all expired
       }
     };
     fetchPulses();
-  }, [userId, onClose, currentUserId]);
+
+    const supabase = createClient();
+    const sub = supabase.channel(`pulse_viewer_${userId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'pulses', filter: `user_id=eq.${userId}` }, async (payload) => {
+        const { data: profile } = await supabase.from('profiles').select('full_name, avatar_url').eq('id', userId).single();
+        const newPulse = { ...payload.new, view_count: 0, profiles: profile || { full_name: 'Unknown', avatar_url: '' } } as any;
+        setPulses(prev => [...prev, newPulse]);
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(sub); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, currentUserId, startIndex]);
 
   // Record view
   useEffect(() => {
     if (!currentPulse || !currentUserId || isOwner) return;
     const recordView = async () => {
       const supabase = createClient();
+      console.log("RECORDING VIEW FOR PULSE:", currentPulse.id);
+      // Use direct insert instead of RPC to guarantee it works without requiring the user to run additional SQL
       const { error } = await supabase.from('pulse_views').insert({
         pulse_id: currentPulse.id,
         viewer_id: currentUserId
       });
-      if (error && error.code !== '23505') { // Ignore unique violation
+
+      if (error && error.code !== '23505') {
         console.error("Failed to record view:", error);
+      } else if (onPulseViewed) {
+        console.log("NOTIFYING PARENT OF VIEW:", currentPulse.user_id);
+        // Immediately notify parent to update the ring state for this poster
+        onPulseViewed(currentPulse.user_id);
       }
     };
     recordView();
@@ -135,10 +152,10 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
     setIsMediaLoaded(false);
     setProgress(0);
     progressRef.current = 0;
-    if (pulses[currentIndex]?.media_type === 'text') {
+    if (currentPulse?.media_type === 'text') {
       setIsMediaLoaded(true);
     }
-  }, [currentIndex, pulses]);
+  }, [currentPulse?.id]);
 
   // Progress and Auto-advance for images/text
   useEffect(() => {
@@ -155,7 +172,7 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
       const elapsed = Date.now() - startTime;
       const additionalProgress = (elapsed / duration) * 100;
       const newProgress = Math.min(initialProgress + additionalProgress, 100);
-      
+
       setProgress(newProgress);
       progressRef.current = newProgress;
 
@@ -167,9 +184,10 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
     };
 
     animationFrameId = requestAnimationFrame(tick);
-    
+
     return () => cancelAnimationFrame(animationFrameId);
-  }, [currentIndex, currentPulse, isPaused, isMediaLoaded]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentIndex, currentPulse?.id, isPaused, isMediaLoaded]);
 
   // Keyboard controls
   useEffect(() => {
@@ -208,7 +226,7 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
     // If clicking on controls, don't navigate
     if ((e.target as HTMLElement).closest('.controls-layer')) return;
     if (showViewersList) return;
-    
+
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     if (x > rect.width / 2) {
@@ -218,7 +236,7 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
     }
   };
 
-  const sendReaction = (emoji: string) => {
+  const sendReaction = async (emoji: string) => {
     // Send DM reaction
     // Also animate local float
     const id = Date.now();
@@ -226,22 +244,43 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
     setTimeout(() => {
       setFloatingEmojis(prev => prev.filter(e => e.id !== id));
     }, 2000);
+    
+    // Actually send it!
+    await submitReply(emoji);
   };
 
-  const submitReply = async () => {
-    if (!replyText.trim() || !currentUserId || !currentPulse) return;
+  const submitReply = async (textOverride?: string) => {
+    const textToSubmit = typeof textOverride === 'string' ? textOverride : replyText;
+    if (!textToSubmit.trim() || !currentUserId || !currentPulse) return;
     setIsSubmittingReply(true);
-    
+
     const supabase = createClient();
-    
+
     // Check if convo exists
-    let { data: convs } = await supabase.rpc('get_conversation_with_user', {
+    let { data: convs, error: rpcError } = await supabase.rpc('get_conversation_with_user', {
       other_user_id: currentPulse.user_id
     });
-    
+
     let convId = convs?.[0]?.id;
+
+    // Robust fallback if RPC is broken or missing
     if (!convId) {
-      // Create conv
+      const { data: myMembers } = await supabase.from('conversation_members').select('conversation_id').eq('user_id', currentUserId);
+      if (myMembers && myMembers.length > 0) {
+        const { data: sharedMembers } = await supabase.from('conversation_members')
+          .select('conversation_id, conversations!inner(type)')
+          .eq('user_id', currentPulse.user_id)
+          .in('conversation_id', myMembers.map(m => m.conversation_id));
+          
+        const existing = sharedMembers?.find((c: any) => c.conversations?.type === 'direct');
+        if (existing) {
+          convId = existing.conversation_id;
+        }
+      }
+    }
+
+    if (!convId) {
+      // Create conv ONLY if we are certain none exists
       const { data: newConv } = await supabase.from('conversations').insert({ type: 'direct', created_by: currentUserId }).select().single();
       if (newConv) {
         convId = newConv.id;
@@ -256,9 +295,29 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
       await supabase.from('messages').insert({
         conversation_id: convId,
         sender_id: currentUserId,
-        content: replyText.trim(),
-        message_type: 'text',
-        // In a real app we'd add metadata referencing the pulse
+        content: textToSubmit.trim(),
+        type: 'text',
+        reply_to_sender: currentPulse.profiles?.full_name || 'Status',
+        reply_to_content: JSON.stringify({
+          is_pulse: true,
+          pulse_id: currentPulse.id,
+          user_id: currentPulse.user_id,
+          media_type: currentPulse.media_type,
+          media_url: currentPulse.media_url,
+          text_content: currentPulse.caption,
+          background_color: currentPulse.background_color
+        })
+      });
+      
+      const channel = supabase.channel(`messages:${convId}`);
+      channel.subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          channel.send({
+            type: 'broadcast', event: 'new_message_signal',
+            payload: { conversation_id: convId, new_event: true, message_time: new Date().toISOString() }
+          });
+          setTimeout(() => supabase.removeChannel(channel), 1000);
+        }
       });
     }
 
@@ -271,7 +330,7 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
 
   return (
     <div className="relative w-full h-full bg-black overflow-hidden flex flex-col group select-none">
-      
+
       {/* Blurred Background Layer */}
       <div className="absolute inset-0 z-0">
         {currentPulse.media_type === 'photo' && currentPulse.media_url ? (
@@ -286,7 +345,7 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
       </div>
 
       {/* Main Content Layer */}
-      <div 
+      <div
         className="absolute inset-0 z-10 flex items-center justify-center p-4 sm:p-8"
         onMouseDown={() => setIsPaused(true)}
         onMouseUp={() => setIsPaused(false)}
@@ -294,7 +353,7 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
         onTouchEnd={() => setIsPaused(false)}
         onClick={handleTap}
       >
-        <motion.div 
+        <motion.div
           layoutId={`pulse-card-${currentPulse.id}`}
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
@@ -302,19 +361,19 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
           className="relative w-full max-w-lg aspect-[9/16] max-h-full rounded-[24px] overflow-hidden shadow-2xl bg-black"
         >
           {currentPulse.media_type === 'photo' && (
-            <img 
-              src={currentPulse.media_url} 
-              className="w-full h-full object-contain" 
+            <img
+              src={currentPulse.media_url}
+              className="w-full h-full object-contain"
               onLoad={() => setIsMediaLoaded(true)}
             />
           )}
           {currentPulse.media_type === 'video' && (
-            <video 
+            <video
               ref={videoRef}
-              src={currentPulse.media_url} 
-              className="w-full h-full object-contain" 
-              autoPlay 
-              playsInline 
+              src={currentPulse.media_url}
+              className="w-full h-full object-contain"
+              autoPlay
+              playsInline
               muted={false}
               onLoadedData={() => setIsMediaLoaded(true)}
               onPlay={() => setIsPaused(false)}
@@ -330,7 +389,7 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
             />
           )}
           {currentPulse.media_type === 'text' && (
-            <div 
+            <div
               className="w-full h-full flex flex-col items-center justify-center p-8 text-center"
               style={{ backgroundColor: currentPulse.background_color || '#0D9488' }}
             >
@@ -341,13 +400,13 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
           )}
           {currentPulse.media_type === 'voice' && (
             <div className="w-full h-full bg-gradient-to-br from-gray-900 to-black flex flex-col items-center justify-center p-8">
-              <audio 
-                ref={audioRef} 
-                src={currentPulse.media_url} 
-                autoPlay 
+              <audio
+                ref={audioRef}
+                src={currentPulse.media_url}
+                autoPlay
                 onLoadedData={() => setIsMediaLoaded(true)}
-                onPlay={() => setIsPaused(false)} 
-                onPause={() => setIsPaused(true)} 
+                onPlay={() => setIsPaused(false)}
+                onPause={() => setIsPaused(true)}
                 onTimeUpdate={() => {
                   if (audioRef.current && audioRef.current.duration) {
                     const p = (audioRef.current.currentTime / audioRef.current.duration) * 100;
@@ -363,7 +422,7 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
               </div>
               <div className="flex items-center justify-center h-16 gap-1.5 opacity-80">
                 {currentPulse.waveform_data ? currentPulse.waveform_data.map((h, i) => (
-                  <motion.div 
+                  <motion.div
                     key={i}
                     className="w-1.5 bg-[#0D9488] rounded-full"
                     animate={{ height: isPaused ? `${h * 100}%` : [`${h * 100}%`, `${Math.max(10, h * 150)}%`, `${h * 100}%`] }}
@@ -372,7 +431,7 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
                   />
                 )) : (
                   Array.from({ length: 20 }).map((_, i) => (
-                    <motion.div 
+                    <motion.div
                       key={i}
                       className="w-1.5 bg-white/50 rounded-full"
                       animate={{ height: isPaused ? '20%' : ['20%', '80%', '20%'] }}
@@ -387,8 +446,8 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
 
           {/* Caption Overlay */}
           {currentPulse.caption && currentPulse.media_type !== 'text' && (
-            <div className="absolute bottom-0 inset-x-0 pt-24 pb-8 px-6 bg-gradient-to-t from-black/80 via-black/40 to-transparent flex flex-col justify-end pointer-events-none">
-              <p className="text-white text-[15px] font-medium text-shadow-sm leading-snug">
+            <div className={`absolute bottom-0 inset-x-0 pt-32 px-6 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end pointer-events-none z-10 ${isOwner ? 'pb-20' : 'pb-[100px]'}`}>
+              <p className="text-white text-[16px] font-medium drop-shadow-md leading-snug text-center">
                 {currentPulse.caption}
               </p>
             </div>
@@ -398,14 +457,14 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
 
       {/* UI Controls Layer */}
       <div className="absolute inset-0 z-20 pointer-events-none flex flex-col justify-between p-4 sm:p-8">
-        
+
         {/* Top Bar */}
         <div className="w-full max-w-lg mx-auto flex flex-col gap-3 controls-layer pointer-events-auto">
           {/* Progress Bars */}
           <div className="flex gap-1.5">
             {pulses.map((p, i) => (
               <div key={p.id} className="flex-1 h-1 bg-white/30 rounded-full overflow-hidden backdrop-blur-sm">
-                <motion.div 
+                <motion.div
                   className="h-full bg-white rounded-full"
                   initial={{ width: i < currentIndex ? '100%' : '0%' }}
                   animate={{ width: i === currentIndex ? `${progress}%` : i < currentIndex ? '100%' : '0%' }}
@@ -455,8 +514,8 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
           ) : (
             <div className="flex items-center gap-3 p-3 bg-black/40 backdrop-blur-xl border border-white/10 rounded-2xl mb-4 sm:mb-0">
               <div className="flex-1 flex items-center bg-white/10 rounded-xl px-4 py-2.5 focus-within:bg-white/20 transition-colors">
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={replyText}
                   onChange={(e) => setReplyText(e.target.value)}
                   onFocus={() => setIsPaused(true)}
@@ -466,19 +525,19 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
                   className="w-full bg-transparent border-none outline-none text-white placeholder:text-white/60 text-[14px]"
                 />
                 {replyText.trim() && (
-                  <button onClick={submitReply} className="ml-2 p-1 text-[#0D9488] hover:text-[#5EEAD4]">
+                  <button onClick={() => submitReply()} className="ml-2 p-1 text-[#0D9488] hover:text-[#5EEAD4]">
                     {isSubmittingReply ? <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <Send className="w-4 h-4" />}
                   </button>
                 )}
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 {EMOJI_REACTIONS.map(emoji => (
-                  <button 
+                  <button
                     key={emoji}
                     onClick={() => sendReaction(emoji)}
                     className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-xl transition-transform hover:scale-110 active:scale-95"
                   >
-                    {emoji}
+                    <Emoji unified={toUnified(emoji)} emojiStyle={EmojiStyle.APPLE} size={20} />
                   </button>
                 ))}
               </div>
@@ -497,9 +556,9 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
               animate={{ opacity: [0, 1, 1, 0], y: '-20%', x: `${item.x + (Math.random() * 10 - 5)}%`, scale: 1.5 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 2, ease: "easeOut" }}
-              className="absolute bottom-20 text-4xl"
+              className="absolute bottom-20"
             >
-              {item.emoji}
+              <Emoji unified={toUnified(item.emoji)} emojiStyle={EmojiStyle.APPLE} size={40} />
             </motion.div>
           ))}
         </AnimatePresence>
@@ -508,7 +567,7 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
       {/* Viewers List Modal */}
       <AnimatePresence>
         {showViewersList && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: "100%" }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: "100%" }}
@@ -520,14 +579,14 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
                 <Eye className="w-5 h-5 text-[#0F0F14]" />
                 <h2 className="text-[16px] font-bold text-[#0F0F14]">Viewed by {viewers.length}</h2>
               </div>
-              <button 
+              <button
                 onClick={() => { setShowViewersList(false); setIsPaused(false); }}
                 className="w-8 h-8 rounded-full bg-[#F6F8F7] flex items-center justify-center hover:bg-[#E5E7EB] transition-colors"
               >
                 <X className="w-5 h-5 text-[#6B7280]" />
               </button>
             </div>
-            
+
             <div className="flex-1 overflow-y-auto p-2">
               {viewers.length === 0 ? (
                 <div className="py-12 text-center text-[#6B7280] text-[14px]">

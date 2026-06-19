@@ -94,4 +94,14 @@ export const db = new BolDatabase();
 export async function clearAllCachedData() {
   await db.delete();
   await db.open();
+  if (typeof window !== 'undefined') {
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('bol_')) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(key => localStorage.removeItem(key));
+  }
 }

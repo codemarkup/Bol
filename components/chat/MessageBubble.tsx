@@ -284,10 +284,31 @@ export function MessageBubble(props: MessageBubbleProps) {
           )}
           {/* WhatsApp-style quoted reply */}
           {replyTo && (
-            <div className={`flex gap-2 mb-2 rounded-xl px-3 py-2 cursor-pointer ${
+            <div 
+              onClick={() => {
+                if ((replyTo as any).pulseData?.user_id) {
+                  window.location.href = `/status?user=${(replyTo as any).pulseData.user_id}`;
+                }
+              }}
+              className={`flex gap-2 mb-2 rounded-xl px-3 py-2 cursor-pointer hover:opacity-90 transition-opacity ${
               isSent ? 'bg-white/10 border-l-2 border-[#00E5FF]' : 'bg-[#F6F8F7] border-l-2 border-brand'
             }`}>
-              <div className="min-w-0">
+              {(replyTo as any).pulseData?.media_url ? (
+                <div className="w-10 h-10 shrink-0 rounded-md overflow-hidden bg-black/10">
+                  {((replyTo as any).pulseData.media_type === 'video') ? (
+                    <video src={(replyTo as any).pulseData.media_url} className="w-full h-full object-cover" />
+                  ) : (
+                    <img src={(replyTo as any).pulseData.media_url} className="w-full h-full object-cover" />
+                  )}
+                </div>
+              ) : (replyTo as any).pulseData?.background_color && (
+                <div className="w-10 h-10 shrink-0 rounded-md overflow-hidden flex items-center justify-center" style={{ backgroundColor: (replyTo as any).pulseData.background_color }}>
+                  <div className="w-full h-full flex items-center justify-center text-white text-[8px] font-bold p-1 text-center leading-tight line-clamp-2">
+                    {(replyTo as any).pulseData.text_content}
+                  </div>
+                </div>
+              )}
+              <div className="min-w-0 flex-1 flex flex-col justify-center">
                 <p className={`text-[11px] font-semibold truncate ${ isSent ? 'text-[#00E5FF]' : 'text-brand' }`}>{replyTo.senderName}</p>
                 <p className={`text-[12px] truncate ${ isSent ? 'text-white/60' : 'text-[#6B7280]' }`}>{replyTo.content}</p>
               </div>

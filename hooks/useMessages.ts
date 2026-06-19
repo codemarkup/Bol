@@ -58,11 +58,27 @@ export function useMessages(conversationId: string | null, currentUserId: string
         reactions: aggregateReactions(raw.message_reactions || []),
         read: raw.read_status || false,
         rawTime: raw.created_at,
-        replyTo: raw.reply_to_id ? {
-          id: raw.reply_to_id,
-          content: raw.reply_to_content || '',
-          senderName: raw.reply_to_sender || 'Unknown'
-        } : null,
+        replyTo: (() => {
+          if (!raw.reply_to_content) return null;
+          try {
+            if (raw.reply_to_content.startsWith('{')) {
+              const parsed = JSON.parse(raw.reply_to_content);
+              if (parsed.is_pulse) {
+                return {
+                  id: raw.reply_to_id || '',
+                  content: parsed.media_type === 'text' ? (parsed.text_content || 'Status Update') : (parsed.media_type === 'video' ? '🎥 Status Video' : '📷 Status Image'),
+                  senderName: raw.reply_to_sender || 'Unknown',
+                  pulseData: parsed
+                };
+              }
+            }
+          } catch(e) {}
+          return {
+            id: raw.reply_to_id || '',
+            content: raw.reply_to_content,
+            senderName: raw.reply_to_sender || 'Unknown'
+          };
+        })(),
         media_url: raw.media_url || undefined,
         duration_seconds: raw.duration_seconds || undefined,
         waveform_data: raw.waveform_data || undefined,

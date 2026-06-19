@@ -259,13 +259,29 @@ export default function ChatPage() {
               }
               else if (action === 'delete_chat' && contextMenu?.chat && currentUser) {
                 if (window.confirm("Are you sure you want to delete this chat? This cannot be undone.")) {
-                  // Delete conversation where user is creator (or leave if just member)
                   const chatToDelete = contextMenu.chat.id;
-                  const { error } = await supabase.from('conversations').delete().eq('id', chatToDelete).eq('created_by', currentUser.id);
-                  if (error) {
-                     // Maybe it's a group or user isn't the creator. Try deleting the membership instead to "leave" the chat
+                  
+                  // Try deleting the conversation entirely (only works if creator)
+                  const { error, count } = await supabase
+                    .from('conversations')
+                    .delete({ count: 'exact' })
+                    .eq('id', chatToDelete)
+                    .eq('created_by', currentUser.id);
+                    
+                  // If it deleted 0 rows (we are not the creator or it's a group), leave the chat instead
+                  if (error || count === 0) {
                      await supabase.from('conversation_members').delete().eq('conversation_id', chatToDelete).eq('user_id', currentUser.id);
                   }
+                  
+                  // IMPORTANT: Delete from local Dexie database so it instantly disappears from the UI
+                  try {
+                    const { db } = await import('@/lib/db');
+                    await db.conversations.delete(chatToDelete);
+                    await db.messages.where('conversation_id').equals(chatToDelete).delete();
+                  } catch (e) {
+                    console.error("Local DB delete error:", e);
+                  }
+                  
                   if (activeChatId === chatToDelete) {
                     handleCloseChat();
                   }

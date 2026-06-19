@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { SquarePen, SlidersHorizontal, Search, Sparkles, CheckCheck } from "lucide-react";
+import { SquarePen, SlidersHorizontal, Search, Sparkles, CheckCheck, Check } from "lucide-react";
 import { useState } from "react";
 import { ConversationItem } from "@/hooks/useConversations";
 import { renderTextWithEmojis } from "./MessageBubble";
@@ -177,7 +177,11 @@ export function ChatList({
                       </div>
                     )}
                     {chat.lastMessageIsFromMe && (
-                      <CheckCheck className={`w-[14px] h-[14px] shrink-0 mr-1 ${chat.isReadByOther ? 'text-[#00E5FF]' : 'text-[#9CA3AF]'}`} />
+                      chat.isReadByOther || chat.isDeliveredByOther ? (
+                        <CheckCheck className={`w-[14px] h-[14px] shrink-0 mr-1 ${chat.isReadByOther ? 'text-[#00E5FF]' : 'text-[#9CA3AF]'}`} />
+                      ) : (
+                        <Check className="w-[14px] h-[14px] shrink-0 mr-1 text-[#9CA3AF]" />
+                      )
                     )}
                     <span className={`text-[13px] truncate ${chat.unread > 0 ? "text-[#0F0F14] font-medium" : "text-[#6B7280]"}`}>
                       {renderTextWithEmojis(chat.message)}

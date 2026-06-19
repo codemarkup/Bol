@@ -7,13 +7,20 @@ import { PulseViewer } from "@/components/pulse/PulseViewer";
 import { PulseEmptyState } from "@/components/pulse/PulseEmptyState";
 import { PulseCreationModal } from "@/components/pulse/PulseCreationModal";
 import { createClient } from "@/lib/supabase/client";
+import { useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
 
-export default function PulsePage() {
+function PulsePageContent() {
   const [activePulseUserId, setActivePulseUserId] = useState<string | null>(null);
+  const [activePulseStartIndex, setActivePulseStartIndex] = useState<number>(0);
   const [showMainOnMobile, setShowMainOnMobile] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [isCreationModalOpen, setIsCreationModalOpen] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [pulseViewedTrigger, setPulseViewedTrigger] = useState<{ poster_id: string, ts: number } | null>(null);
+  
+  const searchParams = useSearchParams();
+  const initUser = searchParams.get('user');
 
   useEffect(() => {
     document.title = "Status — Bol";
@@ -21,8 +28,15 @@ export default function PulsePage() {
     supabase.auth.getUser().then(({ data }) => setCurrentUserId(data.user?.id || null));
   }, []);
 
-  const handleSelectPulseUser = (userId: string) => {
+  useEffect(() => {
+    if (initUser && !activePulseUserId) {
+      handleSelectPulseUser(initUser, 0);
+    }
+  }, [initUser]);
+
+  const handleSelectPulseUser = (userId: string, startIndex: number = 0) => {
     setActivePulseUserId(userId);
+    setActivePulseStartIndex(startIndex);
     setShowMainOnMobile(true);
   };
 
@@ -38,6 +52,7 @@ export default function PulsePage() {
       onSelectUser={handleSelectPulseUser}
       onCreatePulse={() => setIsCreationModalOpen(true)}
       refreshTrigger={refreshTrigger}
+      pulseViewedTrigger={pulseViewedTrigger}
     />
   );
 
@@ -45,6 +60,7 @@ export default function PulsePage() {
     <PulseViewer
       userId={activePulseUserId}
       currentUserId={currentUserId}
+      startIndex={activePulseStartIndex}
       onBack={() => setShowMainOnMobile(false)}
       onClose={() => { 
         setActivePulseUserId(null); 
@@ -52,6 +68,7 @@ export default function PulsePage() {
         setRefreshTrigger(p => p + 1); // Instantly reload feed to show updated views
       }}
       onNextUser={(nextUserId) => handleSelectPulseUser(nextUserId)}
+      onPulseViewed={(poster_id) => setPulseViewedTrigger({ poster_id, ts: Date.now() })}
     />
   ) : (
     <PulseEmptyState
@@ -76,5 +93,13 @@ export default function PulsePage() {
         />
       )}
     </>
+  );
+}
+
+export default function PulsePage() {
+  return (
+    <Suspense fallback={<div className="flex h-screen items-center justify-center">Loading Status...</div>}>
+      <PulsePageContent />
+    </Suspense>
   );
 }

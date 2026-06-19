@@ -53,14 +53,8 @@ export function AppPreloader() {
         const simple = (profiles || []).map((p: any) => ({ id: p.id, full_name: p.full_name }));
         localStorage.setItem(`bol_contacts_cache_${uid}`, JSON.stringify(simple));
       } else {
-        // Fallback: all users
-        const { data: allProfiles } = await supabase
-          .from("profiles")
-          .select("id, full_name")
-          .neq("id", uid)
-          .limit(30);
-        localStorage.setItem(`bol_contacts_cache_${uid}`, JSON.stringify(allProfiles || []));
-        localStorage.setItem(`bol_contacts_page_cache_${uid}`, JSON.stringify(allProfiles || []));
+        localStorage.setItem(`bol_contacts_cache_${uid}`, JSON.stringify([]));
+        localStorage.setItem(`bol_contacts_page_cache_${uid}`, JSON.stringify([]));
       }
 
       // ── 2. Conversations ───────────────────────────────────────

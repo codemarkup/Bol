@@ -129,6 +129,8 @@ export function useCalls(currentUserId: string | null) {
     const broadcastSub = supabase.channel(`call:${currentUserId}`)
       .on('broadcast', { event: 'incoming_call' }, async (payload) => {
         const callId = payload.payload.call_id;
+        if (incomingCallRef.current?.id === callId || activeCallRef.current?.id === callId) return;
+        
         const { data } = await supabase.from('call_logs').select('*').eq('id', callId).single();
         if (data && data.status === 'ringing') {
           setIncomingCall(data as CallLog);
@@ -274,7 +276,13 @@ export function useCalls(currentUserId: string | null) {
     pingCh.subscribe((status) => {
       if (status === 'SUBSCRIBED') {
         pingCh.send({ type: 'broadcast', event: 'incoming_call', payload: { call_id: callRow.id } });
-        setTimeout(() => supabase.removeChannel(pingCh), 1000);
+        
+        // Multi-fire to guarantee delivery through network jitters
+        setTimeout(() => pingCh.send({ type: 'broadcast', event: 'incoming_call', payload: { call_id: callRow.id } }), 1000);
+        setTimeout(() => pingCh.send({ type: 'broadcast', event: 'incoming_call', payload: { call_id: callRow.id } }), 2000);
+        setTimeout(() => pingCh.send({ type: 'broadcast', event: 'incoming_call', payload: { call_id: callRow.id } }), 3000);
+
+        setTimeout(() => supabase.removeChannel(pingCh), 4000);
       }
     });
 

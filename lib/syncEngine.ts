@@ -9,8 +9,8 @@ export class SyncEngine {
   static async syncProfile(userId: string): Promise<LocalProfile | null> {
     const cached = await db.profiles.get(userId);
     const now = Date.now();
-    // Re-fetch if older than 1 hour
-    if (cached && (now - new Date(cached.updated_at).getTime() < 3600000)) {
+    // Re-fetch if older than 1 minute (60000ms) instead of 1 hour
+    if (cached && (now - new Date(cached.updated_at).getTime() < 60000)) {
       return cached;
     }
     
@@ -29,7 +29,8 @@ export class SyncEngine {
     
     for (const id of userIds) {
       const cached = await db.profiles.get(id);
-      if (cached && (Date.now() - new Date(cached.updated_at).getTime() < 3600000)) {
+      // Re-fetch if older than 1 minute (60000ms)
+      if (cached && (Date.now() - new Date(cached.updated_at).getTime() < 60000)) {
         map[id] = cached.full_name;
       } else {
         uncachedIds.push(id);

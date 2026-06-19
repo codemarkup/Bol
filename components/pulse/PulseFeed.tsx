@@ -31,9 +31,19 @@ export interface Pulse {
 interface PulseFeedProps {
   currentUserId: string | null;
   activeUserId: string | null;
-  onSelectUser: (userId: string) => void;
+  onSelectUser: (userId: string, startIndex?: number) => void;
   onCreatePulse: () => void;
   refreshTrigger?: number;
+  pulseViewedTrigger?: { poster_id: string, ts: number } | null;
+}
+
+export interface RingState {
+  poster_id: string;
+  total_pulses: number;
+  viewed_pulses: number;
+  has_unseen: boolean;
+  first_unseen_pulse_id: string;
+  first_unseen_index: number;
 }
 
 function getMoodColor(mood: string | null) {
@@ -66,9 +76,9 @@ function getMoodEmoji(mood: string | null) {
   }
 }
 
-export function PulseFeed({ currentUserId, activeUserId, onSelectUser, onCreatePulse, refreshTrigger = 0 }: PulseFeedProps) {
+export function PulseFeed({ currentUserId, activeUserId, onSelectUser, onCreatePulse, refreshTrigger = 0, pulseViewedTrigger }: PulseFeedProps) {
   const [pulses, setPulses] = useState<Pulse[]>([]);
-  const [viewedPulseIds, setViewedPulseIds] = useState<Set<string>>(new Set());
+  const [ringStatesMap, setRingStatesMap] = useState<Map<string, RingState>>(new Map());
   const [currentUserProfile, setCurrentUserProfile] = useState<{ full_name: string, avatar_url: string } | null>(null);
   const [showViewed, setShowViewed] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -120,20 +130,23 @@ export function PulseFeed({ currentUserId, activeUserId, onSelectUser, onCreateP
         }));
         
         setPulses(pulsesWithProfiles as any[]);
-      }
-
-      // Fetch viewed pulses by current user
-      const { data: views, error: viewsError } = await supabase
-        .from('pulse_views')
-        .select('pulse_id')
-        .eq('viewer_id', currentUserId);
-
-      if (viewsError) {
-        console.error("Failed to fetch views:", viewsError);
-      }
-
-      if (views) {
-        setViewedPulseIds(new Set(views.map(v => v.pulse_id)));
+        
+        // Fetch the powerful ring states for all posters
+        const posterIds = Array.from(new Set(allPulses.filter(p => p.user_id !== currentUserId).map(p => p.user_id)));
+        if (posterIds.length > 0) {
+          const { data: ringStatesData, error: ringError } = await supabase.rpc('get_pulse_ring_states', {
+            viewer_id_param: currentUserId,
+            poster_ids: posterIds
+          });
+          if (ringError) {
+            console.error("RPC Error:", ringError);
+            alert("SQL ERROR: " + ringError.message + "\n\nPlease run the SQL I gave you!");
+          }
+          console.log("INITIAL RING STATES RPC RESULT:", ringStatesData);
+          const map = new Map<string, RingState>();
+          ringStatesData?.forEach((r: RingState) => map.set(r.poster_id, r));
+          setRingStatesMap(map);
+        }
       }
     };
 
@@ -145,16 +158,23 @@ export function PulseFeed({ currentUserId, activeUserId, onSelectUser, onCreateP
         // We need to fetch the profile for the new pulse
         const { data: profile } = await supabase.from('profiles').select('full_name, avatar_url').eq('id', payload.new.user_id).single();
         const newPulse = { ...payload.new, profiles: profile } as Pulse;
-        setPulses(prev => [newPulse, ...prev]);
+        setPulses(prev => [...prev, newPulse]);
+
+        // Re-call get_pulse_ring_states for that specific poster_id only
+        const { data: ringStatesData } = await supabase.rpc('get_pulse_ring_states', {
+          viewer_id_param: currentUserId,
+          poster_ids: [payload.new.user_id]
+        });
+        if (ringStatesData && ringStatesData.length > 0) {
+          setRingStatesMap(prev => {
+            const newMap = new Map(prev);
+            newMap.set(payload.new.user_id, ringStatesData[0]);
+            return newMap;
+          });
+        }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'pulses' }, (payload) => {
         setPulses(prev => prev.map(p => p.id === payload.new.id ? { ...p, ...payload.new } : p));
-      })
-      .subscribe();
-
-    const viewsSub = supabase.channel('pulse_views_feed')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'pulse_views', filter: `viewer_id=eq.${currentUserId}` }, (payload) => {
-        setViewedPulseIds(prev => new Set([...prev, payload.new.pulse_id]));
       })
       .subscribe();
 
@@ -163,10 +183,30 @@ export function PulseFeed({ currentUserId, activeUserId, onSelectUser, onCreateP
 
     return () => {
       supabase.removeChannel(pulsesSub);
-      supabase.removeChannel(viewsSub);
       clearInterval(intervalId);
     };
   }, [currentUserId, refreshTrigger]);
+
+  // Handle instant ring state updates when a pulse is viewed
+  useEffect(() => {
+    if (!currentUserId || !pulseViewedTrigger) return;
+    const fetchRingState = async () => {
+      const supabase = createClient();
+      const { data: ringStatesData, error } = await supabase.rpc('get_pulse_ring_states', {
+        viewer_id_param: currentUserId,
+        poster_ids: [pulseViewedTrigger.poster_id]
+      });
+      console.log("TRIGGERED RING STATE RPC:", { poster_id: pulseViewedTrigger.poster_id, data: ringStatesData, error });
+      if (ringStatesData && ringStatesData.length > 0) {
+        setRingStatesMap(prev => {
+          const newMap = new Map(prev);
+          newMap.set(pulseViewedTrigger.poster_id, ringStatesData[0]);
+          return newMap;
+        });
+      }
+    };
+    fetchRingState();
+  }, [pulseViewedTrigger, currentUserId]);
 
   const myPulses = useMemo(() => pulses.filter(p => p.user_id === currentUserId), [pulses, currentUserId]);
   
@@ -179,13 +219,14 @@ export function PulseFeed({ currentUserId, activeUserId, onSelectUser, onCreateP
       map.get(p.user_id)!.push(p);
     });
     return Array.from(map.entries()).map(([userId, userPulses]) => {
-      // Sort oldest to newest for viewing order, but latest for summary
       const sorted = [...userPulses].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-      const hasUnviewed = sorted.some(p => !viewedPulseIds.has(p.id));
+      const ringState = ringStatesMap.get(userId);
+      // Determine if they have unseen pulses based purely on the ringState data
+      const hasUnviewed = ringState ? ringState.has_unseen : true;
       const latestPulse = sorted[sorted.length - 1];
-      return { userId, pulses: sorted, hasUnviewed, latestPulse };
+      return { userId, pulses: sorted, hasUnviewed, ringState, latestPulse };
     });
-  }, [pulses, viewedPulseIds, currentUserId]);
+  }, [pulses, ringStatesMap, currentUserId]);
 
   const recentContactUsers = useMemo(() => contactPulsesByUser.filter(u => u.hasUnviewed).sort((a, b) => new Date(b.latestPulse.created_at).getTime() - new Date(a.latestPulse.created_at).getTime()), [contactPulsesByUser]);
   const viewedContactUsers = useMemo(() => contactPulsesByUser.filter(u => !u.hasUnviewed).sort((a, b) => new Date(b.latestPulse.created_at).getTime() - new Date(a.latestPulse.created_at).getTime()), [contactPulsesByUser]);
@@ -262,7 +303,7 @@ export function PulseFeed({ currentUserId, activeUserId, onSelectUser, onCreateP
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: idx * 0.04 }}
                   key={user.userId}
-                  onClick={() => onSelectUser(user.userId)}
+                  onClick={() => onSelectUser(user.userId, user.ringState?.first_unseen_index || 0)}
                   className={`flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-colors ${activeUserId === user.userId ? 'bg-[#EEF4F3]' : 'hover:bg-[#F6F8F7]'}`}
                 >
                   <div className="relative shrink-0 w-14 h-14 rounded-full p-[2px] bg-gradient-to-tr from-[#0D9488] to-[#5EEAD4] animate-[spin_4s_linear_infinite]">
@@ -301,10 +342,10 @@ export function PulseFeed({ currentUserId, activeUserId, onSelectUser, onCreateP
                 {viewedContactUsers.map(user => (
                   <div
                     key={user.userId}
-                    onClick={() => onSelectUser(user.userId)}
+                    onClick={() => onSelectUser(user.userId, 0)}
                     className={`flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-colors ${activeUserId === user.userId ? 'bg-[#EEF4F3]' : 'hover:bg-[#F6F8F7]'}`}
                   >
-                    <div className="relative shrink-0 w-14 h-14 rounded-full p-[2px] bg-[#E5E7EB]">
+                    <div className="relative shrink-0 w-14 h-14 rounded-full p-[2px] bg-[#D1D5DB]">
                       <img src={user.latestPulse.profiles?.avatar_url} className="w-full h-full rounded-full object-cover border-2 border-white grayscale-[0.2] opacity-80" />
                     </div>
                     <div className="flex-1 min-w-0">

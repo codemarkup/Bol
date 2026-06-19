@@ -24,6 +24,7 @@ export type ConversationItem = {
   avatarUrl?: string | null;
   lastMessageIsFromMe?: boolean;
   isReadByOther?: boolean;
+  isDeliveredByOther?: boolean;
 };
 
 let globalConversationsCache: any[] | undefined = undefined;
@@ -43,9 +44,14 @@ export function useConversations(currentUserId: string | null) {
         if (lastMsgs && lastMsgs.length > 0) {
           const lastMsg = lastMsgs[lastMsgs.length - 1];
           
-          let isRead = false;
-          if (conv.other_last_read_at) {
+          let isRead = !!lastMsg.read_status;
+          if (conv.other_last_read_at && !isRead) {
             isRead = new Date(conv.other_last_read_at).getTime() >= new Date(lastMsg.created_at).getTime();
+          }
+
+          let isDelivered = !!lastMsg.delivery_status;
+          if (conv.other_last_delivered_at && !isDelivered) {
+            isDelivered = new Date(conv.other_last_delivered_at).getTime() >= new Date(lastMsg.created_at).getTime();
           }
 
           let preview = '';
@@ -68,7 +74,8 @@ export function useConversations(currentUserId: string | null) {
             last_message_at: lastMsg.created_at,
             last_message_preview: preview,
             last_message_sender_id: lastMsg.sender_id,
-            isReadByOther: isRead
+            isReadByOther: isRead,
+            isDeliveredByOther: isDelivered
           };
         }
         return conv;
@@ -105,6 +112,7 @@ export function useConversations(currentUserId: string | null) {
       avatarUrl: !conv.is_group ? conv.other_user_avatar : conv.avatar_url,
       lastMessageIsFromMe: conv.last_message_sender_id === currentUserId,
       isReadByOther: (conv as any).isReadByOther,
+      isDeliveredByOther: (conv as any).isDeliveredByOther,
     };
   });
 
@@ -113,6 +121,23 @@ export function useConversations(currentUserId: string | null) {
     try {
       await SyncEngine.seedFromSupabase(currentUserId);
       await SyncEngine.syncConversations(currentUserId);
+      
+      // Force refresh of all contact profiles to ensure avatars are up-to-date
+      const localConvs = await db.conversations.toArray();
+      const contactIds = Array.from(new Set(localConvs.filter(c => !c.is_group && c.other_user_id).map(c => c.other_user_id as string)));
+      if (contactIds.length > 0) {
+        await SyncEngine.getProfileMap(contactIds);
+        // Sync any updated avatars back to conversations
+        for (const c of localConvs) {
+          if (!c.is_group && c.other_user_id) {
+            const prof = await db.profiles.get(c.other_user_id);
+            if (prof && prof.avatar_url !== c.other_user_avatar) {
+              await db.conversations.update(c.id, { other_user_avatar: prof.avatar_url, other_user_name: prof.full_name });
+            }
+          }
+        }
+      }
+      
       SyncEngine.startBackgroundWorkers(currentUserId);
       setNetworkLoaded(true);
     } catch (e) {
@@ -156,6 +181,21 @@ export function useConversations(currentUserId: string | null) {
         })
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, fetchConversations)
         .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, fetchConversations)
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, async (payload) => {
+          const profile = payload.new;
+          if (profile && profile.id) {
+            await db.profiles.put({ ...profile, updated_at: new Date().toISOString() } as any);
+            const convsToUpdate = await db.conversations.filter(c => c.other_user_id === profile.id).toArray();
+            if (convsToUpdate.length > 0) {
+              for (const c of convsToUpdate) {
+                await db.conversations.update(c.id, {
+                  other_user_name: profile.full_name,
+                  other_user_avatar: profile.avatar_url
+                });
+              }
+            }
+          }
+        })
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversation_members' }, (payload) => {
           if (payload.new && payload.new.user_id !== currentUserId) {
             db.conversations.update(payload.new.conversation_id, {

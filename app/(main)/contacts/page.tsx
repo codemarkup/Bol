@@ -15,25 +15,8 @@ import { Search, X, UserPlus, Check } from "lucide-react";
 export default function ContactsPage() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   
-  const [contacts, setContacts] = useState<any[]>(() => {
-    if (typeof window !== 'undefined') {
-      const uid = localStorage.getItem('bol_last_user_id');
-      if (uid) {
-        const cached = localStorage.getItem(`bol_contacts_page_cache_${uid}`);
-        if (cached) {
-          try { return JSON.parse(cached); } catch(e) {}
-        }
-      }
-    }
-    return [];
-  });
-  const [contactsLoaded, setContactsLoaded] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const uid = localStorage.getItem('bol_last_user_id');
-      return !!uid && !!localStorage.getItem(`bol_contacts_page_cache_${uid}`);
-    }
-    return false;
-  });
+  const [contacts, setContacts] = useState<any[]>([]);
+  const [contactsLoaded, setContactsLoaded] = useState(false);
   const [activeContactId, setActiveContactId] = useState<string | null>(null);
   const [showMainOnMobile, setShowMainOnMobile] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -94,6 +77,16 @@ export default function ContactsPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       setCurrentUser(user);
+      
+      // Load from cache for this verified user first for instant UI
+      const cached = localStorage.getItem(`bol_contacts_page_cache_${user.id}`);
+      if (cached) {
+        try {
+          setContacts(JSON.parse(cached));
+          setContactsLoaded(true);
+        } catch(e) {}
+      }
+      
       localStorage.setItem('bol_last_user_id', user.id);
       await loadContacts(user.id);
     }
