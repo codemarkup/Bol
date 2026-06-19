@@ -85,8 +85,16 @@ export function PulseViewer({ userId, currentUserId, onBack, onClose, onNextUser
         // Fetch profile
         const { data: profile } = await supabase.from('profiles').select('full_name, avatar_url').eq('id', userId).single();
         
+        const pulseIds = data.map(p => p.id);
+        const { data: viewsData } = await supabase.from('pulse_views').select('pulse_id').in('pulse_id', pulseIds);
+        const viewCounts = new Map<string, number>();
+        viewsData?.forEach(v => {
+          viewCounts.set(v.pulse_id, (viewCounts.get(v.pulse_id) || 0) + 1);
+        });
+
         const pulsesWithProfiles = data.map(p => ({
           ...p,
+          view_count: viewCounts.get(p.id) || 0,
           profiles: profile || { full_name: 'Unknown', avatar_url: '' }
         }));
         // Fetch viewed pulses by current user to determine starting index

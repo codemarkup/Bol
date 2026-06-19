@@ -103,8 +103,19 @@ export function PulseFeed({ currentUserId, activeUserId, onSelectUser, onCreateP
           
         const profileMap = new Map(profiles?.map(p => [p.id, p]) || []);
         
+        // Fetch accurate view counts for the current user's pulses
+        const myPulseIds = allPulses.filter(p => p.user_id === currentUserId).map(p => p.id);
+        const viewCounts = new Map<string, number>();
+        if (myPulseIds.length > 0) {
+          const { data: myViews } = await supabase.from('pulse_views').select('pulse_id').in('pulse_id', myPulseIds);
+          myViews?.forEach(v => {
+            viewCounts.set(v.pulse_id, (viewCounts.get(v.pulse_id) || 0) + 1);
+          });
+        }
+        
         const pulsesWithProfiles = allPulses.map(p => ({
           ...p,
+          view_count: p.user_id === currentUserId ? (viewCounts.get(p.id) || 0) : p.view_count,
           profiles: profileMap.get(p.user_id) || { full_name: 'Unknown', avatar_url: '' }
         }));
         
