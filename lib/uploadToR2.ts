@@ -19,7 +19,7 @@ export async function uploadToR2(
 export async function getPresignedUrl(
   fileType: string,
   fileExtension: string,
-  mediaType: 'voice' | 'image' | 'video' | 'file' | 'avatar' | 'chat',
+  mediaType: 'voice' | 'image' | 'video' | 'file' | 'avatar' | 'chat' | 'pulse',
   conversationId?: string
 ): Promise<{ presignedUrl: string; publicUrl: string; key: string }> {
   const response = await fetch('/api/r2/presign', {

@@ -1,13 +1,14 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { MessageSquare, Phone, Users, Sparkles, Clock, Settings } from "lucide-react";
+import { MessageSquare, Phone, Users, Sparkles, Clock, Settings, Radio } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 
 const topIcons = [
   { id: "chat", path: "/chat", icon: MessageSquare, label: "Chats" },
   { id: "calls", path: "/calls", icon: Phone, label: "Calls" },
+  { id: "pulse", path: "/status", icon: Radio, label: "Status" },
   { id: "contacts", path: "/contacts", icon: Users, label: "Contacts" },
   { id: "ai", path: "/ai", icon: Sparkles, label: "AI Features" },
 ];
